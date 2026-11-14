@@ -52,5 +52,5 @@ call it again. If it returns `closed`, the user pressed "Looks good, close" or s
 If the user says they hit Send and nothing came in, call `annotate_pull`. If
 that returns a batch, the session was started without the channel flag: handle
 the batch, then tell the user once to restart with
-`claude --dangerously-load-development-channels plugin:annotate@claude-annotate`
-or to use `/annotate <url> --poll`.
+`claude --dangerously-load-development-channels plugin:inkback@inkback`
+or to use `/inkback:annotate <url> --poll`.

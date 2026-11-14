@@ -1,13 +1,13 @@
 {
-  "name": "annotate",
-  "displayName": "Claude Annotate",
-  "version": "0.3.3",
-  "description": "Draw and leave notes on a live localhost page, then send it all into this Claude Code session. Progress comes back onto the page. Local only, no cloud.",
+  "name": "inkback",
+  "displayName": "Inkback",
+  "version": "0.4.0",
+  "description": "Comment and draw on your running localhost app, send it to Claude Code, and get a before/after slider for every change. Local only, no cloud. Built on claude-annotate by Angelo Dini (MIT).",
   "author": {
-    "name": "Angelo Dini"
+    "name": "Peter Trawka"
   },
-  "homepage": "https://github.com/petertrawka/annotate-ink",
-  "repository": "https://github.com/petertrawka/annotate-ink",
+  "homepage": "https://github.com/petertrawka/inkback",
+  "repository": "https://github.com/petertrawka/inkback",
   "license": "MIT",
   "keywords": [
     "annotation",

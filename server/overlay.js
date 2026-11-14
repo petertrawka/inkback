@@ -582,7 +582,7 @@ svg.ink .spotdim.on { opacity: 1; }
     chrome.appendChild(popover);
     bar = el("div", "bar");
     bar.setAttribute("role", "toolbar");
-    bar.setAttribute("aria-label", "Annotate");
+    bar.setAttribute("aria-label", "Inkback");
     chrome.appendChild(bar);
     root.appendChild(chrome);
 
@@ -1510,7 +1510,7 @@ svg.ink .spotdim.on { opacity: 1; }
       toast(`Sent ${r.notes} note${r.notes === 1 ? "" : "s"}${where}. The pins update as Claude works.`, "ok");
       // The server cannot tell whether the channel is on. If nothing comes back, say what to do.
       clearTimeout(quietTimer);
-      quietTimer = setTimeout(() => { if (phase === "sent") toast("Nothing from Claude yet? In the session, type /annotate pull."); }, 20000);
+      quietTimer = setTimeout(() => { if (phase === "sent") toast("Nothing from Claude yet? In the session, type /inkback:annotate pull."); }, 20000);
     } catch (e) {
       phase = "idle";
       renderToolbar();
