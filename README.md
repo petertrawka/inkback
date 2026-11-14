@@ -2,6 +2,8 @@
 
 **Draw it. See it done.**
 
+![Inkback: a pricing page split into before and after. On the left the weak Upgrade link is circled in ink with the note "Make this the main button"; on the right it is a bold black button marked Done.](assets/inkback-hero.jpg)
+
 Inkback is a Claude Code plugin for visual feedback on your running app. Comment and sketch right on the page, press **Send to Claude**, and Claude edits the code. When it's done, every note comes back with a before/after slider.
 
 ## What it does
