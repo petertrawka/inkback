@@ -1,7 +1,7 @@
-/* Annotate — in-page overlay.
+/* Inkback — in-page overlay.
  *
  * Injected into every page of the annotation browser before the page's own scripts
- * run (window.__CLAUDE_ANNOTATE__ carries endpoint + token). Everything lives in a
+ * run (window.__INKBACK__ carries endpoint + token). Everything lives in a
  * Shadow DOM on a host appended to <html>, so the page's CSS never touches it and ours
  * never leaks out. Document coordinates everywhere, so marks stay put while scrolling.
  *
@@ -11,13 +11,13 @@
  */
 (() => {
   if (window.top !== window) return; // never inside iframes
-  const CFG = window.__CLAUDE_ANNOTATE__;
-  try { delete window.__CLAUDE_ANNOTATE__; } catch { window.__CLAUDE_ANNOTATE__ = undefined; } // the token never stays on the page
-  if (!CFG || window.__claudeAnnotate) return;
+  const CFG = window.__INKBACK__;
+  try { delete window.__INKBACK__; } catch { window.__INKBACK__ = undefined; } // the token never stays on the page
+  if (!CFG || window.__inkback) return;
   // Local development hosts only: a third-party page in this profile must never see the bridge.
   if (!isLocalHost(location.hostname)) return;
   const F = window.fetch.bind(window), ES = window.EventSource; // taken before page scripts can patch them
-  const RENDER_ONLY = !!CFG.renderOnly || !!window.__CLAUDE_ANNOTATE_RENDER_ONLY__;
+  const RENDER_ONLY = !!CFG.renderOnly || !!window.__INKBACK_RENDER_ONLY__;
 
   function isLocalHost(h) {
     return /^(localhost|127(\.\d{1,3}){3}|\[::1\]|0\.0\.0\.0|10(\.\d{1,3}){3}|192\.168(\.\d{1,3}){2}|172\.(1[6-9]|2\d|3[01])(\.\d{1,3}){2})$/.test(h) || /\.(localhost|test|local|internal)$/.test(h);
@@ -56,7 +56,7 @@
   // State
   // ---------------------------------------------------------------------------
   const api = { ready: false };
-  window.__claudeAnnotate = api;
+  window.__inkback = api;
 
   const pageUrl = () => location.href;
   let shapes = []; // { id, type, color, ...geometry, ctx, batch }
@@ -73,12 +73,12 @@
   let phase = "idle"; // idle | sending | sent | done
   let clearArmed = null;
   let sse = null;
-  let quietTimer = null; // fires the "/annotate pull" hint when a Send gets no reaction
+  let quietTimer = null; // fires the "/inkback:review pull" hint when a Send gets no reaction
 
   // ---------------------------------------------------------------------------
   // Transport
   // ---------------------------------------------------------------------------
-  const H = { "Content-Type": "application/json", "X-Annot-Token": CFG.token };
+  const H = { "Content-Type": "application/json", "X-Inkback-Token": CFG.token };
   const req = async (method, p, body) => {
     const r = await F(CFG.endpoint + p, { method, headers: H, body: body ? JSON.stringify(body) : undefined });
     const j = await r.json().catch(() => ({}));
@@ -550,8 +550,8 @@ svg.ink .spotdim.on { opacity: 1; }
 
   function mount() {
     if (host) return;
-    host = document.createElement("claude-annotate");
-    host.setAttribute("data-claude-annotate", "");
+    host = document.createElement("inkback-overlay");
+    host.setAttribute("data-inkback", "");
     root = host.attachShadow({ mode: "open" });
     const style = document.createElement("style");
     style.textContent = CSS;
@@ -938,7 +938,7 @@ svg.ink .spotdim.on { opacity: 1; }
   // ---------------------------------------------------------------------------
   let popNote = null;
   // The dev server may full-reload the page mid-sentence; keep the open note's text so mount can reopen it.
-  const DRAFT_KEY = "claude-annotate:draft";
+  const DRAFT_KEY = "inkback:draft";
   const stashDraft = (v) => { try { v ? sessionStorage.setItem(DRAFT_KEY, JSON.stringify(v)) : sessionStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ } };
   function reopenDraft() {
     let d; try { d = JSON.parse(sessionStorage.getItem(DRAFT_KEY) || "null"); } catch { return; }
@@ -1238,7 +1238,7 @@ svg.ink .spotdim.on { opacity: 1; }
   // ---------------------------------------------------------------------------
   // Toolbar position (draggable, remembered per origin)
   // ---------------------------------------------------------------------------
-  const POS_KEY = "claude-annotate:bar";
+  const POS_KEY = "inkback:bar";
   const NARROW = matchMedia("(max-width: 720px)"); // the CSS lays the bar out there; no dragging
   function restoreBarPos() {
     if (NARROW.matches) { bar.removeAttribute("style"); return; }
@@ -1514,7 +1514,7 @@ svg.ink .spotdim.on { opacity: 1; }
       toast(`Sent ${r.notes} note${r.notes === 1 ? "" : "s"}${where}. The pins update as Claude works.`, "ok");
       // The server cannot tell whether the channel is on. If nothing comes back, say what to do.
       clearTimeout(quietTimer);
-      quietTimer = setTimeout(() => { if (phase === "sent" && r.mode === "channel") toast("Nothing from Claude yet? In the session, type /inkback:annotate pull."); }, 20000);
+      quietTimer = setTimeout(() => { if (phase === "sent" && r.mode === "channel") toast("Nothing from Claude yet? In the session, type /inkback:review pull."); }, 20000);
     } catch (e) {
       phase = "idle";
       renderToolbar();
@@ -1637,7 +1637,7 @@ svg.ink .spotdim.on { opacity: 1; }
   api.hide = (on) => { if (host) host.style.display = on ? "none" : ""; }; // clean before/after pictures: nothing of ours on the page
 
   // ---------------------------------------------------------------------------
-  // Before / after (after Claude's annotate_done)
+  // Before / after (after Claude's inkback_done)
   // ---------------------------------------------------------------------------
   let reviewEl = null, reviewUrls = [];
   async function loadImg(k, which) {
@@ -1742,7 +1742,7 @@ svg.ink .spotdim.on { opacity: 1; }
       e.currentTarget.disabled = true;
       try { await req("POST", "/review/more"); } catch { /* reload anyway */ }
       hideReview();
-      setTimeout(() => location.reload(), 160); // annotate the new version of the page
+      setTimeout(() => location.reload(), 160); // mark up the new version of the page
     });
   }
 

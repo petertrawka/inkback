@@ -1,8 +1,8 @@
 {
   "name": "inkback",
   "displayName": "Inkback",
-  "version": "0.4.2",
-  "description": "Comment and draw on your running localhost app, send it to Claude Code, and get a before/after slider for every change. Local only, no cloud. Built on claude-annotate by Angelo Dini (MIT).",
+  "version": "0.5.0",
+  "description": "Comment and draw on your running localhost app, send it to Claude Code, and get a before/after slider for every change. Local only, no cloud. Based on open-source work by Angelo Dini (MIT).",
   "author": {
     "name": "Peter Trawka"
   },
@@ -10,7 +10,7 @@
   "repository": "https://github.com/petertrawka/inkback",
   "license": "MIT",
   "keywords": [
-    "annotation",
+    "visual-feedback",
     "frontend",
     "design-review",
     "screenshot",
@@ -18,7 +18,7 @@
     "playwright"
   ],
   "mcpServers": {
-    "annotate": {
+    "inkback": {
       "command": "node",
       "args": [
         "${CLAUDE_PLUGIN_ROOT}/server/index.mjs"

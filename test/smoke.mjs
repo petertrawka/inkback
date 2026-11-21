@@ -34,23 +34,23 @@ transport.stderr.on("data", (d) => (stderr += d));
 const caps = client.getServerCapabilities();
 assert.ok(caps.experimental && caps.experimental["claude/channel"], "declares claude/channel");
 assert.ok(caps.tools, "declares tools");
-assert.match(client.getInstructions() || "", /annotate_progress/, "instructions mention the protocol");
+assert.match(client.getInstructions() || "", /inkback_progress/, "instructions mention the protocol");
 console.log("✓ channel capability + instructions");
 
 const names = (await client.listTools()).tools.map((t) => t.name).sort();
-assert.deepEqual(names, ["annotate_clear", "annotate_close", "annotate_done", "annotate_open", "annotate_progress", "annotate_pull", "annotate_reply", "annotate_screenshot", "annotate_wait"]);
-console.log("✓ 9 tools, no debug tool without ANNOTATE_DEBUG");
+assert.deepEqual(names, ["inkback_clear", "inkback_close", "inkback_done", "inkback_open", "inkback_progress", "inkback_pull", "inkback_reply", "inkback_screenshot", "inkback_wait"]);
+console.log("✓ 9 tools, no debug tool without INKBACK_DEBUG");
 
-const pull = await client.callTool({ name: "annotate_pull", arguments: {} });
+const pull = await client.callTool({ name: "inkback_pull", arguments: {} });
 assert.match(pull.content[0].text, /"status": "empty"/);
-await assert.rejects(client.callTool({ name: "annotate_open", arguments: { url: "ftp://nope" } }), /http/, "rejects non-http urls");
-await assert.rejects(client.callTool({ name: "annotate_open", arguments: { url: "https://example.com/" } }), /local development hosts only/, "rejects non-local hosts");
-const waited = await client.callTool({ name: "annotate_wait", arguments: { timeout_s: 5 } });
+await assert.rejects(client.callTool({ name: "inkback_open", arguments: { url: "ftp://nope" } }), /http/, "rejects non-http urls");
+await assert.rejects(client.callTool({ name: "inkback_open", arguments: { url: "https://example.com/" } }), /local development hosts only/, "rejects non-local hosts");
+const waited = await client.callTool({ name: "inkback_wait", arguments: { timeout_s: 5 } });
 assert.match(waited.content[0].text, /"status": "closed"/, "wait reports closed when no browser is open");
 console.log("✓ pull is empty, bad and non-local urls rejected, wait says closed");
 
 // Session file for the hook, keyed by the parent pid (this process).
-const sessions = path.join(os.homedir(), ".cache", "claude-annotate", "sessions");
+const sessions = path.join(os.homedir(), ".cache", "inkback", "sessions");
 const sessionFile = path.join(sessions, `${process.pid}.json`);
 for (let i = 0; i < 50 && !fs.existsSync(sessionFile); i++) await sleep(100);
 assert.ok(fs.existsSync(sessionFile), "session file written");
@@ -61,7 +61,7 @@ const unauth = await fetch(`${endpoint}/state?url=x`);
 assert.equal(unauth.status, 403, "bridge needs the token");
 const viaQuery = await fetch(`${endpoint}/state?url=x&t=${token}`);
 assert.equal(viaQuery.status, 403, "query token only works for /events");
-const H = { "Content-Type": "application/json", "X-Annot-Token": token };
+const H = { "Content-Type": "application/json", "X-Inkback-Token": token };
 const url = "http://localhost:1/";
 const put = await (await fetch(`${endpoint}/state`, { method: "PUT", headers: H, body: JSON.stringify({ url, shapes: [{ id: "s", type: "rect", color: "pink", x: 1, y: 1, w: 10, h: 10 }], notes: [{ id: "n", n: 1, x: 2, y: 2, color: "pink", text: "hi" }] }) })).json();
 assert.deepEqual(put.totals, { notes: 1, shapes: 1, pages: 1, unsent: 2, open: 0, batches: 0 });
@@ -70,7 +70,7 @@ assert.equal(next.n, 2, "note numbering continues after the highest stored note"
 const got = await (await fetch(`${endpoint}/state?url=${encodeURIComponent(url)}`, { headers: H })).json();
 assert.equal(got.notes[0].text, "hi");
 assert.equal(got.mode, "poll", "poll is the default delivery");
-await client.callTool({ name: "annotate_progress", arguments: { note: 1, status: "working" } });
+await client.callTool({ name: "inkback_progress", arguments: { note: 1, status: "working" } });
 const after = await (await fetch(`${endpoint}/state?url=${encodeURIComponent(url)}`, { headers: H })).json();
 assert.equal(after.notes[0].status, "working", "progress mutates the stored note");
 console.log("✓ bridge: token gate, state round trip, note numbering, progress");

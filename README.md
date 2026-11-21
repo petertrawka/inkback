@@ -26,7 +26,7 @@ Inkback is a Claude Code plugin for visual feedback on your running app. Comment
 Then, with your app running, start Claude Code as usual (no special flag) and run:
 
 ```text
-/inkback:annotate http://localhost:3000
+/inkback:review http://localhost:3000
 ```
 
 Claude says it is waiting. Draw, add notes, press **Send to Claude**, and Claude edits your code.
@@ -37,6 +37,5 @@ Needs Node 20+ and Google Chrome. It works on local addresses only (localhost, 1
 
 ## Credits
 
-Inkback is built on [claude-annotate](https://github.com/FinalAngel/claude-annotate) by Angelo Dini, released under the MIT licence. The browser bridge, element context and Send loop are his. Inkback adds its own look, pen, spotlight areas and before/after review. The original documentation is in [docs/](docs/).
-
+Inkback is built on [claude-annotate](https://github.com/FinalAngel/claude-annotate) by Angelo Dini, released under the MIT licence. The browser bridge, element context and Send loop are his. Inkback adds its own look, pen, spotlight areas and before/after review.
 MIT licence, see [LICENSE](LICENSE).

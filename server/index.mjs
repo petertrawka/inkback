@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Annotate — channel server.
+// Inkback — channel server.
 //
 // One process, three jobs:
 //   1. MCP server over stdio (spawned by Claude Code). Declares the `claude/channel`
@@ -25,27 +25,27 @@ import { chromium } from "playwright-core";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const VERSION = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8")).version; // plugin root
-const log = (...a) => process.stderr.write(`annotate: ${a.join(" ")}\n`);
+const log = (...a) => process.stderr.write(`inkback: ${a.join(" ")}\n`);
 
 const PARENT_PID = process.ppid; // Claude Code. Captured now: it reads as 1 once the parent is gone.
 const TOKEN = crypto.randomBytes(18).toString("hex");
 const SESSION = TOKEN.slice(0, 8);
-const CACHE_DIR = path.join(os.homedir(), ".cache", "claude-annotate");
+const CACHE_DIR = path.join(os.homedir(), ".cache", "inkback");
 const PROFILE_DIR = path.join(CACHE_DIR, "chrome-profile");
 const SESSIONS_DIR = path.join(CACHE_DIR, "sessions");
-const SHOTS_ROOT = path.join(os.tmpdir(), "claude-annotate");
+const SHOTS_ROOT = path.join(os.tmpdir(), "inkback");
 const SHOTS_DIR = path.join(SHOTS_ROOT, SESSION);
 const REFS_DIR = path.join(SHOTS_DIR, "refs"); // reference images pasted into notes; removed on clear / session end
 const COMPARE_DIR = path.join(SHOTS_DIR, "compare"); // before/after pictures, kept until Close / More feedback / clear
 const REF_NAME = /^[a-z0-9]{12}\.(png|jpg|gif|webp)$/;
 const OVERLAY_SRC = fs.readFileSync(path.join(__dirname, "overlay.js"), "utf8");
-const BROWSER_CHANNEL = process.env.ANNOTATE_BROWSER || "chrome"; // chrome | msedge | chromium
+const BROWSER_CHANNEL = process.env.INKBACK_BROWSER || "chrome"; // chrome | msedge | chromium
 
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 const state = {
-  mode: "poll", // "poll" (default, works without any startup flag): Claude blocks in annotate_wait. "channel": push into the session (needs the channel flag).
+  mode: "poll", // "poll" (default, works without any startup flag): Claude blocks in inkback_wait. "channel": push into the session (needs the channel flag).
   pages: new Map(), // url -> { shapes: [], notes: [] }
   nextNote: 1,
   batchSeq: 0,
@@ -55,7 +55,7 @@ const state = {
   listeners: new Set(),
   lastUrl: null,
   sending: false, // one Send (or Clear) at a time; the build takes seconds
-  review: null, // { batch, summary, items: [{ k, url, clip, notes, before, after }] } shown on the page after annotate_done
+  review: null, // { batch, summary, items: [{ k, url, clip, notes, before, after }] } shown on the page after inkback_done
 };
 
 let endpoint = null;
@@ -80,7 +80,7 @@ let mainPage = null;
 let sessionProfile = null;
 
 function bootstrapSource(renderOnly = false) {
-  return `window.__CLAUDE_ANNOTATE__ = ${JSON.stringify({ endpoint, token: TOKEN, renderOnly, version: VERSION })};\n${OVERLAY_SRC}`;
+  return `window.__INKBACK__ = ${JSON.stringify({ endpoint, token: TOKEN, renderOnly, version: VERSION })};\n${OVERLAY_SRC}`;
 }
 
 let launching = null;
@@ -114,15 +114,15 @@ async function launchBrowser() {
       context = await chromium.launchPersistentContext(sessionProfile, opts);
     } catch (second) {
       throw new Error(
-        `Could not launch ${BROWSER_CHANNEL}. Install Google Chrome, or set ANNOTATE_BROWSER=msedge, ` +
-          `or run "npx playwright install chromium" and set ANNOTATE_BROWSER=chromium. (${String(second.message).split("\n")[0]})`,
+        `Could not launch ${BROWSER_CHANNEL}. Install Google Chrome, or set INKBACK_BROWSER=msedge, ` +
+          `or run "npx playwright install chromium" and set INKBACK_BROWSER=chromium. (${String(second.message).split("\n")[0]})`,
       );
     }
   }
   context.on("close", () => {
     context = null;
     mainPage = null;
-    for (const w of state.waiters.splice(0)) w(null); // a pending annotate_wait returns "closed" right away
+    for (const w of state.waiters.splice(0)) w(null); // a pending inkback_wait returns "closed" right away
     log("browser closed");
   });
   await context.addInitScript(bootstrapSource(false));
@@ -139,12 +139,12 @@ function assertLocal(url) {
   try { u = new URL(url); } catch { throw new Error("url must be a full http:// or https:// URL"); }
   if (!/^https?:$/.test(u.protocol)) throw new Error("url must start with http:// or https://");
   if (!LOCAL_HOST.test(u.hostname) && !/\.(localhost|test|local|internal)$/.test(u.hostname)) {
-    throw new Error(`annotate works on local development hosts only (localhost, 127.0.0.1, private IPs, *.localhost, *.test, *.local). Got ${u.hostname}.`);
+    throw new Error(`Inkback works on local development hosts only (localhost, 127.0.0.1, private IPs, *.localhost, *.test, *.local). Got ${u.hostname}.`);
   }
   return u.href;
 }
 
-// The user's tab. A second /annotate navigates it in place rather than opening another tab.
+// The user's tab. A second /inkback:review navigates it in place rather than opening another tab.
 async function openUrl(url) {
   url = assertLocal(url);
   const ctx = await ensureBrowser();
@@ -181,9 +181,9 @@ async function pageFor(url, fresh = false) {
   const found = !fresh && live.find((p) => sameUrl(p.url(), url));
   if (found) return { page: found, temp: false };
   const page = await backgroundPage(ctx);
-  await page.addInitScript("window.__CLAUDE_ANNOTATE_RENDER_ONLY__ = true;");
+  await page.addInitScript("window.__INKBACK_RENDER_ONLY__ = true;");
   await page.goto(url, { waitUntil: "networkidle", timeout: 30000 }).catch(() => {});
-  await page.waitForFunction(() => window.__claudeAnnotate && window.__claudeAnnotate.ready, null, { timeout: 8000 }).catch(() => {});
+  await page.waitForFunction(() => window.__inkback && window.__inkback.ready, null, { timeout: 8000 }).catch(() => {});
   await page.waitForTimeout(250);
   return { page, temp: true };
 }
@@ -307,7 +307,7 @@ function renderContent(batch, sections) {
   const totalNotes = sections.reduce((n, s) => n + s.pageState.notes.length, 0);
   const totalShapes = sections.reduce((n, s) => n + s.pageState.shapes.length, 0);
   let out = `Browser annotations · batch ${batch.id} · ${sections.length} page${sections.length === 1 ? "" : "s"} · ${totalNotes} note${totalNotes === 1 ? "" : "s"} · ${totalShapes} mark${totalShapes === 1 ? "" : "s"}\n`;
-  out += `Read the PNGs, then annotate_progress(note, working|done|skipped) per note and annotate_done(summary) at the end.\n`;
+  out += `Read the PNGs, then inkback_progress(note, working|done|skipped) per note and inkback_done(summary) at the end.\n`;
   sections.forEach((sec, i) => {
     out += `\n## Page ${i + 1} of ${sections.length} — ${sec.url}\n`;
     out += `viewport ${sec.viewport.width}×${sec.viewport.height} · document ${sec.doc.w}×${sec.doc.h}\n`;
@@ -358,7 +358,7 @@ async function buildBatch() {
     pi++;
     const { page, temp } = await pageFor(url);
     try {
-      await page.evaluate(() => window.__claudeAnnotate && window.__claudeAnnotate.capture(true));
+      await page.evaluate(() => window.__inkback && window.__inkback.capture(true));
       await page.waitForTimeout(80);
       const viewport = page.viewportSize() || (await page.evaluate(() => ({ width: innerWidth, height: innerHeight })));
       const doc = await page.evaluate(() => ({
@@ -378,21 +378,21 @@ async function buildBatch() {
       sections.push({ url, viewport, doc, fullPath, fullPage: temp, shots, pageState });
       // Clean "before" pictures (no pins or ink) of the same spots, for the before/after view.
       try {
-        await page.evaluate(() => window.__claudeAnnotate && window.__claudeAnnotate.hide(true));
+        await page.evaluate(() => window.__inkback && window.__inkback.hide(true));
         const cdir = path.join(COMPARE_DIR, `batch-${id}`);
         await fsp.mkdir(cdir, { recursive: true });
         for (const c of shots) {
           const k = compare.length + 1;
           const before = path.join(cdir, `c${k}-before.png`);
           const pt = c.notes.length ? [c.notes[0].x, c.notes[0].y] : (() => { const b = bboxOf(c.shapes[0]); return [b.x + b.w / 2, b.y + b.h / 2]; })();
-          const anchor = await page.evaluate(([x, y]) => window.__claudeAnnotate && window.__claudeAnnotate.anchor ? window.__claudeAnnotate.anchor(x, y) : null, pt).catch(() => null);
+          const anchor = await page.evaluate(([x, y]) => window.__inkback && window.__inkback.anchor ? window.__inkback.anchor(x, y) : null, pt).catch(() => null);
           await shootRect(page, c.clip, before);
           compare.push({ k, url, clip: c.clip, anchor, notes: c.notes.map((n) => n.n).sort((a, b) => a - b), shapesOnly: !c.notes.length, before, after: null });
         }
       } catch (e) { log(`before shots skipped: ${String(e.message).split("\n")[0]}`); }
     } finally {
-      await page.evaluate(() => window.__claudeAnnotate && window.__claudeAnnotate.hide(false)).catch(() => {});
-      await page.evaluate(() => window.__claudeAnnotate && window.__claudeAnnotate.capture(false)).catch(() => {});
+      await page.evaluate(() => window.__inkback && window.__inkback.hide(false)).catch(() => {});
+      await page.evaluate(() => window.__inkback && window.__inkback.capture(false)).catch(() => {});
       if (temp) await page.close().catch(() => {});
     }
   }
@@ -458,16 +458,16 @@ async function shootAfter(batch) {
         const cdp = await page.context().newCDPSession(page);
         await cdp.send("Network.setCacheDisabled", { cacheDisabled: true });
         await page.reload({ waitUntil: "networkidle", timeout: 30000 }).catch(() => {});
-        await page.waitForFunction(() => window.__claudeAnnotate && window.__claudeAnnotate.ready, null, { timeout: 8000 }).catch(() => {});
+        await page.waitForFunction(() => window.__inkback && window.__inkback.ready, null, { timeout: 8000 }).catch(() => {});
         await page.waitForTimeout(250);
         await cdp.detach().catch(() => {});
       } catch (e) { log(`fresh reload skipped: ${String(e.message).split("\n")[0]}`); }
-      await page.evaluate(() => window.__claudeAnnotate && window.__claudeAnnotate.hide(true)).catch(() => {});
+      await page.evaluate(() => window.__inkback && window.__inkback.hide(true)).catch(() => {});
       for (const it of items) {
         const file = it.before.replace(/-before\.png$/, "-after.png");
         // Follow the anchored element if it moved; otherwise the same spot on the page.
         let clip = it.clip;
-        const now = it.anchor ? await page.evaluate((a) => window.__claudeAnnotate.locate(a), it.anchor).catch(() => null) : null;
+        const now = it.anchor ? await page.evaluate((a) => window.__inkback.locate(a), it.anchor).catch(() => null) : null;
         if (now) {
           const doc = await page.evaluate(() => ({ w: document.documentElement.scrollWidth, h: document.documentElement.scrollHeight }));
           const dx = Math.round(now.x - it.anchor.rect.x), dy = Math.round(now.y - it.anchor.rect.y);
@@ -517,69 +517,69 @@ async function clearAll() {
 // MCP
 // ---------------------------------------------------------------------------
 const INSTRUCTIONS = [
-  "The 'annotate' channel carries visual feedback the user draws on a live localhost page.",
-  "Events arrive as <channel source=\"...annotate\" batch=\"N\" notes=\"K\" pages=\"P\">: a list of pages, numbered notes (with the user's text, the element under the pin, its React component chain and source when known), marks (strokes, arrows, lines, boxes, circles), and PNG paths.",
-  "When one arrives: Read every PNG path listed (the crops first, the overview for context). Then for each note in order call annotate_progress(note, \"working\"), change the code, and call annotate_progress(note, \"done\", <one short line>) or (note, \"skipped\", <why>). Marks without a note describe what they point at: act on them too. If the dev server hot-reloads you may call annotate_screenshot to check the result. Finish with annotate_done(summary): it shows the summary on the page and removes the temporary screenshots.",
+  "The 'inkback' channel carries visual feedback the user draws on a live localhost page.",
+  "Events arrive as <channel source=\"...inkback\" batch=\"N\" notes=\"K\" pages=\"P\">: a list of pages, numbered notes (with the user's text, the element under the pin, its React component chain and source when known), marks (strokes, arrows, lines, boxes, circles), and PNG paths.",
+  "When one arrives: Read every PNG path listed (the crops first, the overview for context). Then for each note in order call inkback_progress(note, \"working\"), change the code, and call inkback_progress(note, \"done\", <one short line>) or (note, \"skipped\", <why>). Marks without a note describe what they point at: act on them too. If the dev server hot-reloads you may call inkback_screenshot to check the result. Finish with inkback_done(summary): it shows the summary on the page and removes the temporary screenshots.",
   "Say one short line in the terminal when you start on a batch and one when you finish. The user is watching the page, not the terminal.",
-  "By default the session runs in poll mode: after annotate_open, call annotate_wait and handle each batch it returns, then call it again. Events are only pushed when annotate_open was called with delivery \"channel\" and the session was started with the channel flag; annotate_pull is the safety net.",
+  "By default the session runs in poll mode: after inkback_open, call inkback_wait and handle each batch it returns, then call it again. Events are only pushed when inkback_open was called with delivery \"channel\" and the session was started with the channel flag; inkback_pull is the safety net.",
 ].join(" ");
 
 const mcp = new Server(
-  { name: "annotate", version: VERSION },
+  { name: "inkback", version: VERSION },
   { capabilities: { experimental: { "claude/channel": {} }, tools: {} }, instructions: INSTRUCTIONS },
 );
 
 const TOOLS = [
   {
-    name: "annotate_open",
-    description: "Open a URL in the annotation browser with the drawing and note tools ready. Reuses the open browser. Returns when the page is loaded. delivery: 'poll' (default, works without any startup flag: you must call annotate_wait) or 'channel' (optional faster push, only if the session was started with the channel flag).",
+    name: "inkback_open",
+    description: "Open a URL in the annotation browser with the drawing and note tools ready. Reuses the open browser. Returns when the page is loaded. delivery: 'poll' (default, works without any startup flag: you must call inkback_wait) or 'channel' (optional faster push, only if the session was started with the channel flag).",
     inputSchema: { type: "object", properties: { url: { type: "string" }, delivery: { type: "string", enum: ["channel", "poll"] } }, required: ["url"] },
   },
   {
-    name: "annotate_progress",
+    name: "inkback_progress",
     description: "Report progress on one note so the user sees it on the page. status: working | done | skipped. message: one short line (what changed, or why skipped).",
     inputSchema: { type: "object", properties: { note: { type: "integer" }, status: { type: "string", enum: ["working", "done", "skipped"] }, message: { type: "string" } }, required: ["note", "status"] },
   },
   {
-    name: "annotate_done",
-    description: "Call once the whole batch is handled (after your edits are saved). Marks every remaining note done, deletes the batch's temporary screenshots, retakes each annotated spot and shows the user a before/after view with your summary. Takes a few seconds.",
+    name: "inkback_done",
+    description: "Call once the whole batch is handled (after your edits are saved). Marks every remaining note done, deletes the batch's temporary screenshots, retakes each marked spot and shows the user a before/after view with your summary. Takes a few seconds.",
     inputSchema: { type: "object", properties: { summary: { type: "string" }, batch: { type: "integer" } }, required: ["summary"] },
   },
   {
-    name: "annotate_reply",
-    description: "Show a short message as a toast on the annotated page (for questions or notes to the user while you work).",
+    name: "inkback_reply",
+    description: "Show a short message as a toast on the marked-up page (for questions or notes to the user while you work).",
     inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] },
   },
   {
-    name: "annotate_screenshot",
+    name: "inkback_screenshot",
     description: "Take a screenshot of the annotation browser to verify a change. Returns the image inline and the file path. Optional url (rendered in a background tab, the user's tab stays where it is), full (full page, rendered in a background tab so the user's tab is never resized), selector (clip to an element), chrome (keep the annotation toolbar visible, off by default).",
     inputSchema: { type: "object", properties: { url: { type: "string" }, full: { type: "boolean" }, selector: { type: "string" }, chrome: { type: "boolean" } } },
   },
   {
-    name: "annotate_pull",
+    name: "inkback_pull",
     description: "Return the latest batch of annotations that was sent but not yet handled (safety net if the channel event did not arrive, or for poll mode).",
     inputSchema: { type: "object", properties: {} },
   },
   {
-    name: "annotate_wait",
+    name: "inkback_wait",
     description: "Poll mode: block until the user hits Send, then return that batch. Returns {status:'timeout'} after timeout_s (default 1500, max 1700): call it again. Returns {status:'closed'} when the browser was closed.",
     inputSchema: { type: "object", properties: { timeout_s: { type: "integer" } } },
   },
   {
-    name: "annotate_clear",
+    name: "inkback_clear",
     description: "Remove every annotation on every page and delete temporary screenshots. Same as the Clear button.",
     inputSchema: { type: "object", properties: {} },
   },
   {
-    name: "annotate_close",
+    name: "inkback_close",
     description: "Close the annotation browser and clean up.",
     inputSchema: { type: "object", properties: {} },
   },
 ];
 
-if (process.env.ANNOTATE_DEBUG === "1") {
+if (process.env.INKBACK_DEBUG === "1") {
   TOOLS.push({
-    name: "annotate_debug",
+    name: "inkback_debug",
     description: "Development only. Drive the annotation browser: mouse ops [[move|down|up|click|wheel, x, y]...], keys to press, text to type, and/or JS to evaluate in the page.",
     inputSchema: { type: "object", properties: { mouse: { type: "array" }, keys: { type: "array" }, type: { type: "string" }, eval: { type: "string" }, viewport: { type: "object" } } },
   });
@@ -592,7 +592,7 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
 mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
   const args = req.params.arguments || {};
   switch (req.params.name) {
-    case "annotate_open": {
+    case "inkback_open": {
       const url = String(args.url || "").trim();
       state.mode = args.delivery === "channel" ? "channel" : "poll";
       await openUrl(url);
@@ -602,11 +602,11 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
         url,
         delivery: state.mode,
         note: state.mode === "channel"
-          ? "Tools are on the page. Do not poll: a channel event arrives here when the user hits Send. If the user says they sent and nothing arrived, call annotate_pull."
-          : "Tools are on the page. Call annotate_wait now and process what it returns; call it again after annotate_done.",
+          ? "Tools are on the page. Do not poll: a channel event arrives here when the user hits Send. If the user says they sent and nothing arrived, call inkback_pull."
+          : "Tools are on the page. Call inkback_wait now and process what it returns; call it again after inkback_done.",
       });
     }
-    case "annotate_progress": {
+    case "inkback_progress": {
       const n = Number(args.note);
       const status = String(args.status);
       const message = String(args.message || "").trim();
@@ -614,7 +614,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
       broadcast({ type: "progress", n, status, message });
       return text("ok");
     }
-    case "annotate_done": {
+    case "inkback_done": {
       const summary = String(args.summary || "").trim();
       // Without an id: the oldest batch still open, never a newer one Claude hasn't read yet.
       const batch = args.batch ? state.batches.find((b) => b.id === Number(args.batch)) : state.batches.find((b) => !b.done);
@@ -633,19 +633,19 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
       broadcast({ type: "done", summary, batch: batch ? batch.id : null, review: !!state.review });
       return text("ok");
     }
-    case "annotate_reply": {
+    case "inkback_reply": {
       broadcast({ type: "toast", text: String(args.text || "").trim() });
       return text("shown");
     }
-    case "annotate_screenshot": {
-      // A url renders in a tab behind the user's (or reuses one already on it): never navigate the tab they're annotating.
+    case "inkback_screenshot": {
+      // A url renders in a tab behind the user's (or reuses one already on it): never navigate the tab they're marking up.
       let { page, temp } = args.url ? await pageFor(assertLocal(String(args.url))) : { page: mainPage && !mainPage.isClosed() ? mainPage : null, temp: false };
       // full on the user's tab would resize it for the capture: render a copy behind it instead
       if (page && args.full && !temp) ({ page, temp } = await pageFor(page.url(), true));
       if (!page) throw new Error("No page open. Pass a url.");
       await fsp.mkdir(SHOTS_DIR, { recursive: true });
       const file = path.join(SHOTS_DIR, `verify-${Date.now()}.png`);
-      if (!args.chrome) await page.evaluate(() => window.__claudeAnnotate && window.__claudeAnnotate.capture(true)).catch(() => {});
+      if (!args.chrome) await page.evaluate(() => window.__inkback && window.__inkback.capture(true)).catch(() => {});
       let buf;
       try {
         if (args.selector) {
@@ -655,17 +655,17 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
           buf = await shoot(page, { path: file, fullPage: !!args.full, scale: "css" });
         }
       } finally {
-        await page.evaluate(() => window.__claudeAnnotate && window.__claudeAnnotate.capture(false)).catch(() => {});
+        await page.evaluate(() => window.__inkback && window.__inkback.capture(false)).catch(() => {});
         if (temp) await page.close().catch(() => {});
       }
       return { content: [{ type: "text", text: `saved ${file}` }, { type: "image", data: buf.toString("base64"), mimeType: "image/png" }] };
     }
-    case "annotate_pull": {
+    case "inkback_pull": {
       const b = state.pending[0];
       if (!b) return text({ status: "empty", hint: "Nothing waiting. Ask the user to hit Send to Claude on the page." });
       return text(takePending(b).content);
     }
-    case "annotate_wait": {
+    case "inkback_wait": {
       if (state.pending[0]) return text(takePending(state.pending[0]).content);
       if (!context) return text({ status: "closed" });
       const timeoutS = Math.min(Math.max(Number(args.timeout_s) || 1500, 5), 1700);
@@ -677,20 +677,20 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
           resolve(null);
         }, timeoutS * 1000);
       });
-      if (!batch) return text({ status: context ? "timeout" : "closed", hint: "Call annotate_wait again." });
+      if (!batch) return text({ status: context ? "timeout" : "closed", hint: "Call inkback_wait again." });
       return text(batch.content);
     }
-    case "annotate_clear": {
+    case "inkback_clear": {
       await clearAll();
       return text("cleared");
     }
-    case "annotate_close": {
+    case "inkback_close": {
       if (context) await context.close().catch(() => {});
       context = null; mainPage = null;
       return text("closed");
     }
-    case "annotate_debug": {
-      if (process.env.ANNOTATE_DEBUG !== "1") throw new Error("unknown tool");
+    case "inkback_debug": {
+      if (process.env.INKBACK_DEBUG !== "1") throw new Error("unknown tool");
       const page = mainPage;
       if (!page) throw new Error("no page");
       if (args.viewport) await page.setViewportSize(args.viewport);
@@ -719,7 +719,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, X-Annot-Token",
+  "Access-Control-Allow-Headers": "Content-Type, X-Inkback-Token",
 };
 const json = (res, code, obj) => { res.writeHead(code, { ...CORS, "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
 const readBody = (req) => new Promise((resolve, reject) => {
@@ -749,7 +749,7 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, "http://localhost");
     if (req.method === "OPTIONS") { res.writeHead(204, CORS); return res.end(); }
     // EventSource cannot set headers, so /events alone may carry the token in the query.
-    const token = req.headers["x-annot-token"] || (url.pathname === "/events" ? url.searchParams.get("t") : null);
+    const token = req.headers["x-inkback-token"] || (url.pathname === "/events" ? url.searchParams.get("t") : null);
     if (token !== TOKEN) return json(res, 403, { ok: false, error: "forbidden" });
 
     if (req.method === "GET" && url.pathname === "/events") {
@@ -827,7 +827,7 @@ const server = http.createServer(async (req, res) => {
       return res.end(buf);
     }
     if (req.method === "POST" && url.pathname === "/review/close") {
-      // "Looks good, close": the round is over. Wipe it and close the window; a waiting annotate_wait returns "closed".
+      // "Looks good, close": the round is over. Wipe it and close the window; a waiting inkback_wait returns "closed".
       json(res, 200, { ok: true });
       await clearAll();
       setTimeout(() => { if (context) context.close().catch(() => {}); }, 150);

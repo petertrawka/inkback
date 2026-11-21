@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { execSync } from "node:child_process";
 
-const SESSIONS = path.join(os.homedir(), ".cache", "claude-annotate", "sessions");
+const SESSIONS = path.join(os.homedir(), ".cache", "inkback", "sessions");
 const parentOf = (pid) => { try { return Number(execSync(`ps -o ppid= -p ${pid}`, { stdio: ["ignore", "pipe", "ignore"] }).toString().trim()); } catch { return 0; } };
 
 let input = "";
@@ -18,7 +18,7 @@ process.stdin.on("end", async () => {
     const file = j.tool_input?.file_path || j.tool_input?.notebook_path;
     if (!file) return;
     // Walk up the process tree (hook → shell → claude) until a session file matches.
-    // No match means no annotate session for this tree: do nothing, never guess another session's page.
+    // No match means no Inkback session for this tree: do nothing, never guess another session's page.
     let f = null;
     for (let pid = process.ppid, i = 0; pid > 1 && i < 4 && !f; pid = parentOf(pid), i++) {
       const c = path.join(SESSIONS, `${pid}.json`);
@@ -31,7 +31,7 @@ process.stdin.on("end", async () => {
     const verb = j.tool_name === "Write" ? "wrote" : "edited";
     await fetch(`${endpoint}/status`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Annot-Token": token },
+      headers: { "Content-Type": "application/json", "X-Inkback-Token": token },
       body: JSON.stringify({ text: `${verb} ${rel}` }),
       signal: AbortSignal.timeout(800),
     });
