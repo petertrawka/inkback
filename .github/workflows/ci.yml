@@ -16,4 +16,5 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
-      - run: npm test
+      # Inkback opens a visible Chrome window; Linux runners have no screen, so give it a virtual one.
+      - run: xvfb-run -a npm test
