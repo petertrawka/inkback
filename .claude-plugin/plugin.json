@@ -1,7 +1,7 @@
 {
   "name": "inkback",
   "displayName": "Inkback",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Comment and draw on your running localhost app, send it to Claude Code, and get a before/after slider for every change. Local only, no cloud. Built on claude-annotate by Angelo Dini (MIT).",
   "author": {
     "name": "Peter Trawka"

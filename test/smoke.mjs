@@ -69,7 +69,7 @@ const next = await (await fetch(`${endpoint}/note/next`, { method: "POST", heade
 assert.equal(next.n, 2, "note numbering continues after the highest stored note");
 const got = await (await fetch(`${endpoint}/state?url=${encodeURIComponent(url)}`, { headers: H })).json();
 assert.equal(got.notes[0].text, "hi");
-assert.equal(got.mode, "channel");
+assert.equal(got.mode, "poll", "poll is the default delivery");
 await client.callTool({ name: "annotate_progress", arguments: { note: 1, status: "working" } });
 const after = await (await fetch(`${endpoint}/state?url=${encodeURIComponent(url)}`, { headers: H })).json();
 assert.equal(after.notes[0].status, "working", "progress mutates the stored note");

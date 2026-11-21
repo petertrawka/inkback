@@ -23,11 +23,15 @@ Inkback is a Claude Code plugin for visual feedback on your running app. Comment
 /plugin install inkback@inkback
 ```
 
-Then, with your app running:
+Then, with your app running, start Claude Code as usual (no special flag) and run:
 
 ```text
-/inkback:annotate http://localhost:3000 --poll
+/inkback:annotate http://localhost:3000
 ```
+
+Claude says it is waiting. Draw, add notes, press **Send to Claude**, and Claude edits your code.
+
+Optional speed-up: start Claude Code with `claude --dangerously-load-development-channels plugin:inkback@inkback` and add `--push` to the command. Notes then arrive instantly instead of through the waiting loop. You never need this.
 
 Needs Node 20+ and Google Chrome. It works on local addresses only (localhost, 127.0.0.1, *.local, *.test).
 

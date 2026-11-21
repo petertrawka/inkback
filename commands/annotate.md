@@ -1,29 +1,38 @@
 ---
 description: Open a localhost page with drawing and note tools; what you mark comes straight back into this session
-argument-hint: <url> [--poll] | pull | clear | close
+argument-hint: <url> [--push] | pull | clear | close
 ---
 
 The user wants to give visual feedback on a running page. Arguments: `$ARGUMENTS`
 
 **Keep the mechanics out of the terminal.** No talk of injecting, screenshots,
-Playwright, channels or tools. Two lines at most while opening, then silence
-until something arrives.
+Playwright, channels, polling or tools. Two lines at most while opening, then
+one calm waiting line, then silence until something arrives.
 
 ## Dispatch on the argument
 
-- `pull` → call `annotate_pull` and handle what it returns like a channel event (see below). If it says empty, tell the user to hit Send on the page.
+- `pull` → call `annotate_pull` and handle what it returns (see below). If it says empty, tell the user to hit Send on the page.
 - `clear` → call `annotate_clear`, confirm in one line.
 - `close` → call `annotate_close`, confirm in one line.
-- A URL (optionally with `--poll`) → call `annotate_open` with that url and `delivery: "poll"` only if `--poll` was given. Then say one line: the page is open, draw and drop notes, hit **Send to Claude** when ready. Then stop.
+- A URL → call `annotate_open` with that url. Use `delivery: "channel"` only if `--push` was given (optional faster mode, needs the session to have been started with the channel flag); otherwise use `delivery: "poll"`. `--poll` is accepted and means the same as no flag. Then say one line: the page is open, draw and drop notes, hit **Send to Claude** when ready.
 - Nothing → ask for the URL in one line.
+
+## Waiting (default, no startup flag needed)
+
+After `annotate_open` in poll mode, say exactly one calm line, for example
+"Waiting for your notes. Draw on the page and press Send to Claude.", then call
+`annotate_wait` right away. Say nothing more while it waits. If it returns
+`timeout`, call it again silently. If it returns `closed`, the user pressed
+"Looks good, close" or shut the window: stop, with no extra message. In `--push`
+mode do not wait: a channel event arrives by itself.
 
 ## When annotations arrive
 
-They come either as a `<channel source="…annotate" …>` event (normal) or as the
-result of `annotate_pull` / `annotate_wait` (poll mode or safety net). Both have
-the same shape: pages, numbered notes with the user's text and the element under
-the pin (selector, text, React components, source file when known), marks
-(strokes, arrows, lines, boxes, circles) with what they point at, and PNG paths.
+They come as the result of `annotate_wait` / `annotate_pull`, or (with `--push`)
+as a `<channel source="…annotate" …>` event. All have the same shape: pages,
+numbered notes with the user's text and the element under the pin (selector,
+text, React components, source file when known), marks (strokes, arrows, lines,
+boxes, circles) with what they point at, and PNG paths.
 
 1. `Read` every PNG path listed. Crops first, the overview for context.
 2. Say one short line: what you're going to change.
@@ -36,21 +45,15 @@ the pin (selector, text, React components, source file when known), marks
    edit is saved. It retakes each annotated spot and shows the user a before/after
    view with two buttons: "Looks good, close" (ends the round, closes the window)
    and "More feedback" (keeps the window open for another round).
-7. One short closing line in the terminal.
+7. One short closing line in the terminal. In poll mode, then call
+   `annotate_wait` again silently for the next round.
 
 Use `annotate_reply` for a question you can't resolve yourself; it shows as a
 toast on the page. Prefer a sensible assumption over a question.
 
-## Poll mode only (`--poll`)
-
-After `annotate_open`, call `annotate_wait` right away. When it returns a batch,
-handle it as above, then call `annotate_wait` again. If it returns `timeout`,
-call it again. If it returns `closed`, the user pressed "Looks good, close" or shut the window: stop, with no extra message.
-
 ## If Send never arrives
 
-If the user says they hit Send and nothing came in, call `annotate_pull`. If
-that returns a batch, the session was started without the channel flag: handle
-the batch, then tell the user once to restart with
-`claude --dangerously-load-development-channels plugin:inkback@inkback`
-or to use `/inkback:annotate <url> --poll`.
+If the user says they hit Send and nothing came in, call `annotate_pull`. If it
+returns a batch, handle it (in `--push` mode this means the session was started
+without the channel flag: tell the user once to use plain
+`/inkback:annotate <url>` instead).

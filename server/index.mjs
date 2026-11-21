@@ -45,7 +45,7 @@ const BROWSER_CHANNEL = process.env.ANNOTATE_BROWSER || "chrome"; // chrome | ms
 // State
 // ---------------------------------------------------------------------------
 const state = {
-  mode: "channel", // "channel": push into the session. "poll": Claude blocks in annotate_wait.
+  mode: "poll", // "poll" (default, works without any startup flag): Claude blocks in annotate_wait. "channel": push into the session (needs the channel flag).
   pages: new Map(), // url -> { shapes: [], notes: [] }
   nextNote: 1,
   batchSeq: 0,
@@ -521,7 +521,7 @@ const INSTRUCTIONS = [
   "Events arrive as <channel source=\"...annotate\" batch=\"N\" notes=\"K\" pages=\"P\">: a list of pages, numbered notes (with the user's text, the element under the pin, its React component chain and source when known), marks (strokes, arrows, lines, boxes, circles), and PNG paths.",
   "When one arrives: Read every PNG path listed (the crops first, the overview for context). Then for each note in order call annotate_progress(note, \"working\"), change the code, and call annotate_progress(note, \"done\", <one short line>) or (note, \"skipped\", <why>). Marks without a note describe what they point at: act on them too. If the dev server hot-reloads you may call annotate_screenshot to check the result. Finish with annotate_done(summary): it shows the summary on the page and removes the temporary screenshots.",
   "Say one short line in the terminal when you start on a batch and one when you finish. The user is watching the page, not the terminal.",
-  "If the session was started without the channel flag, nothing is pushed: use annotate_pull after the user says they hit Send, or run the loop with annotate_wait in poll mode.",
+  "By default the session runs in poll mode: after annotate_open, call annotate_wait and handle each batch it returns, then call it again. Events are only pushed when annotate_open was called with delivery \"channel\" and the session was started with the channel flag; annotate_pull is the safety net.",
 ].join(" ");
 
 const mcp = new Server(
@@ -532,7 +532,7 @@ const mcp = new Server(
 const TOOLS = [
   {
     name: "annotate_open",
-    description: "Open a URL in the annotation browser with the drawing and note tools ready. Reuses the open browser. Returns when the page is loaded. delivery: 'channel' (default, events are pushed into this session when the user hits Send) or 'poll' (you must call annotate_wait).",
+    description: "Open a URL in the annotation browser with the drawing and note tools ready. Reuses the open browser. Returns when the page is loaded. delivery: 'poll' (default, works without any startup flag: you must call annotate_wait) or 'channel' (optional faster push, only if the session was started with the channel flag).",
     inputSchema: { type: "object", properties: { url: { type: "string" }, delivery: { type: "string", enum: ["channel", "poll"] } }, required: ["url"] },
   },
   {
@@ -594,7 +594,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
   switch (req.params.name) {
     case "annotate_open": {
       const url = String(args.url || "").trim();
-      state.mode = args.delivery === "poll" ? "poll" : "channel";
+      state.mode = args.delivery === "channel" ? "channel" : "poll";
       await openUrl(url);
       broadcast({ type: "hello", mode: state.mode });
       return text({
