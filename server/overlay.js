@@ -552,6 +552,31 @@ svg.ink .spotdim.on { opacity: 1; }
 .rv-foot button:disabled { opacity: .6; cursor: default; }
 @media (hover: hover) and (pointer: fine) { .rv-more:hover { background: rgba(255,255,255,.06); } .rv-close:hover { background: #fff; } }
 :host(.capturing) .review { display: none !important; }
+/* Ink comes back (ticket 09): the user's marks on the result screen, and returned marks queued for the next round */
+.rv-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.rv-marks { flex: none; height: 28px; padding: 0 10px; border-radius: var(--r-ctl); font: 500 12.5px var(--font); cursor: pointer; background: transparent; color: var(--fg); border: 1px solid var(--hair-strong); transition: background-color 150ms, transform 120ms var(--ease-out); }
+.rv-marks[aria-pressed="false"] { color: var(--label); }
+.rv-marks:active { transform: scale(.97); }
+@media (hover: hover) and (pointer: fine) { .rv-marks:hover { background: rgba(255,255,255,.06); } }
+.rv-thumb { flex: none; width: 40px; height: 28px; margin-top: -3px; border-radius: 6px; background: rgba(255,255,255,.03); box-shadow: inset 0 0 0 1px var(--hair); display: grid; place-items: center; pointer-events: none; }
+.rv-thumb svg { display: block; width: 40px; height: 28px; overflow: visible; }
+.rv-ink { position: absolute; inset: 0; pointer-events: none; clip-path: inset(0 calc(100% - var(--pos)) 0 0); opacity: 0; transition: opacity 220ms var(--ease-out); }
+.cmp.ready .rv-ink { opacity: 1; }
+.cmp.solo .rv-ink { clip-path: none; }
+.rv-ink svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.rv-pn { position: absolute; transform: translate(-50%, -50%); min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px; background: var(--surface); color: var(--fg);
+  font: 600 11px/20px var(--font); text-align: center; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 1px var(--hair-strong), 0 2px 6px rgba(0,0,0,.5); }
+.review.marks-off .rv-ink { display: none; }
+.rv-qnote { margin-right: auto; align-self: center; font-size: 12.5px; color: var(--label); }
+.rv-qnote[hidden] { display: none; }
+svg.ink .qedge { fill: none; stroke: rgba(12,12,14,.85); stroke-width: 3.4; stroke-dasharray: 6 4; stroke-linejoin: round; }
+svg.ink .qline { fill: none; stroke-width: 1.6; stroke-dasharray: 6 4; stroke-linejoin: round; }
+svg.ink g.queued .area, svg.ink g.queued .area-edge { stroke-dasharray: 7 5; animation: none; }
+svg.ink g.queued .area-fill { fill: none; }
+.pin .tag .qd { display: block; font-size: 11.5px; color: var(--warn); margin-bottom: 2px; }
+.pin.queued .tag { opacity: 1; visibility: visible; transform: none; }
+.pin.queued .dot { outline: 1.5px dashed var(--warn); outline-offset: 2px; }
+
 /* Reduced motion: keep fades, drop movement */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-property: opacity, background-color, color, box-shadow !important; }
@@ -868,17 +893,24 @@ svg.ink .spotdim.on { opacity: 1; }
     const p2 = [s.x2 - size * Math.cos(a + 0.5), s.y2 - size * Math.sin(a + 0.5)];
     return { line: `M${s.x1} ${s.y1} L${bx} ${by}`, head: `${s.x2},${s.y2} ${p1[0]},${p1[1]} ${p2[0]},${p2[1]}` };
   }
-  // opts.queued: drawn as a returned, not yet sent mark (look comes with the "ink comes back" work).
+  // A mark that "Not right" brought back and that is not sent yet: hollow and dashed until Send.
+  const isQueued = (s) => !!(s && s.returned && !s.batch);
+  // opts.queued: draw as a returned, not yet sent mark (also automatic for such a mark).
   function shapeSvg(s, cls = "shape", opts = {}) {
     const hex = (INKS.find((i) => i.id === s.color) || INKS[0]).hex;
+    const queued = !!opts.queued || isQueued(s);
     let body = "", hit = "";
     if (s.type === "pen") {
       const d = penPath(s.points);
-      body = `<path class="halo" d="${d}"/><path class="brush" fill="url(#ca-ink)" d="${brushPath(s.points)}"/>`;
+      const bd = brushPath(s.points);
+      body = queued // hollow: the brush outline only, dashed, a dark dashed edge under it
+        ? `<path class="halo" d="${d}"/><path class="qedge" d="${bd}"/><path class="qline" stroke="url(#ca-ink)" d="${bd}"/>`
+        : `<path class="halo" d="${d}"/><path class="brush" fill="url(#ca-ink)" d="${bd}"/>`;
       hit = `<path class="hit" d="${d}"/>`;
     } else if (s.type === "rect") {
       const a = `x="${s.x}" y="${s.y}" width="${s.w}" height="${s.h}" rx="12"`;
-      body = `<rect class="halo" ${a}/><rect class="area-fill" ${a}/><rect class="area-edge" pathLength="1" ${a}/><rect class="area" pathLength="1" stroke="url(#ca-ink)" ${a}/>`;
+      const pl = queued ? "" : ' pathLength="1"'; // dashes in page pixels when queued
+      body = `<rect class="halo" ${a}/><rect class="area-fill" ${a}/><rect class="area-edge"${pl} ${a}/><rect class="area"${pl} stroke="url(#ca-ink)" ${a}/>`;
       hit = `<rect class="hit" ${a}/>`;
     } else if (s.type === "ellipse") {
       const a = `cx="${s.x + s.w / 2}" cy="${s.y + s.h / 2}" rx="${s.w / 2}" ry="${s.h / 2}"`;
@@ -893,7 +925,7 @@ svg.ink .spotdim.on { opacity: 1; }
       body = `<path class="halo" d="${d}"/><path class="line" stroke="${hex}" d="${d}"/>`;
       hit = `<path class="hit" d="${d}"/>`;
     }
-    return `<g class="${cls} ${s.type}${opts.queued ? " queued" : ""}${selected === s.id ? " selected" : ""}${freshId === s.id && cls === "shape" ? " fresh" : ""}" data-id="${s.id}">${body}${hit}</g>`;
+    return `<g class="${cls} ${s.type}${queued ? " queued" : ""}${selected === s.id ? " selected" : ""}${freshId === s.id && cls === "shape" ? " fresh" : ""}" data-id="${s.id}">${body}${hit}</g>`;
   }
   function renderInk() {
     shapesG.innerHTML = shapes.map((s) => shapeSvg(s)).join("");
@@ -957,19 +989,21 @@ svg.ink .spotdim.on { opacity: 1; }
     pinsLayer.innerHTML = "";
     for (const n of notes) {
       const inkDef = INKS.find((i) => i.id === n.color) || INKS[0];
-      const p = el("div", `pin ${n.status || "draft"}${seen.has(n.id) ? "" : " new"}`);
+      const p = el("div", `pin ${n.status || "draft"}${noteQueued(n) ? " queued" : ""}${seen.has(n.id) ? "" : " new"}`);
       p.dataset.id = n.id;
       p.style.cssText = `left:${n.x}px;top:${n.y}px;--ink:${inkDef.hex};--ink-dark:${inkDef.dark};--ink-soft:${inkDef.hex}55`;
-      p.innerHTML = `<span class="ring"></span><button class="dot" type="button" aria-label="Note ${n.n}"><span class="n">${n.n}</span>${svgIcon("check", 15)}</button><span class="tag" title="${esc(n.text)}">${tagHtml(n)}</span>`;
+      p.innerHTML = `<span class="ring"></span><button class="dot" type="button" aria-label="Note ${n.n}${noteQueued(n) ? ", queued, not sent" : ""}"><span class="n">${n.n}</span>${svgIcon("check", 15)}</button><span class="tag" title="${esc(n.text)}">${tagHtml(n)}</span>`;
       pinsLayer.appendChild(p);
     }
     if (keep) pinsLayer.appendChild(keep);
   }
-  function tagHtml(n) { return `<span class="txt">${esc(n.text || "")}</span>${n.result ? `<span class="res">${esc(n.result)}</span>` : ""}`; }
+  // A ready-made "Not right" note that is not sent yet. Words, not colour, say so.
+  const noteQueued = (n) => !!(n && n.restore && !n.batch);
+  function tagHtml(n) { return `${noteQueued(n) ? '<span class="qd">Queued · not sent</span>' : ""}<span class="txt">${esc(n.text || "")}</span>${n.result ? `<span class="res">${esc(n.result)}</span>` : ""}`; }
   function updatePin(n) {
     const p = pinsLayer.querySelector(`.pin[data-id="${n.id}"]`);
     if (!p) return renderPins();
-    p.className = `pin ${n.status || "draft"}`;
+    p.className = `pin ${n.status || "draft"}${noteQueued(n) ? " queued" : ""}`;
     p.querySelector(".tag").innerHTML = tagHtml(n);
   }
   function wigglePins(stagger = 50) {
@@ -1196,6 +1230,7 @@ svg.ink .spotdim.on { opacity: 1; }
     const n0 = notes.find((n) => n.id === id);
     notes = notes.filter((n) => n.id !== id);
     if (n0 && n0.shapeId && n0.text) { shapes = shapes.filter((s) => s.id !== n0.shapeId); renderInk(); } // a saved note's trash takes its circle too; a cancelled new note keeps the mark
+    if (shapes.some((s) => s.returned && s.returned.note === id)) { shapes = shapes.filter((s) => !(s.returned && s.returned.note === id)); renderInk(); } // a "Not right" note takes every mark it brought back
     renderPins();
     save();
   }
@@ -1273,7 +1308,7 @@ svg.ink .spotdim.on { opacity: 1; }
       ${btn("note", "Note", "N", tool === "note" && mode === "draw" ? "on" : "")}
       ${btn("select", "Select", "S", tool === "select" && mode === "draw" ? "on" : "")}
       <span class="sep"></span>
-      <button class="tb" type="button" data-act="undo" aria-label="Undo" ${undo.length ? "" : "disabled style='opacity:.35'"}>${svgIcon("undo")}<span class="kbd">Undo<b>⌘Z</b></span></button>
+      <button class="tb" type="button" data-act="undo" aria-label="Undo my last mark" ${undo.length ? "" : "disabled style='opacity:.35'"}>${svgIcon("undo")}<span class="kbd">Undo my last mark<b>⌘Z</b></span></button>
       <span class="sep"></span>
       <button class="send ${s.cls}" type="button" data-act="send" ${s.disabled ? "disabled" : ""}><span class="live"></span><span class="label">${s.label}</span>${s.count || s.cls === "done" ? `<span class="cnt"><span class="num">${s.count || ""}</span>${svgIcon("check", 13)}</span>` : ""}</button>
       <button class="tb danger${clearArmed ? " armed" : ""}${phase === "done" && !clearArmed ? " glow" : ""}" type="button" data-act="clear" aria-label="Clear everything">${svgIcon("trash")}${clearArmed ? "<span>Sure?</span>" : `<span class="kbd">Clear all pages</span>`}</button>`;
@@ -1552,6 +1587,7 @@ svg.ink .spotdim.on { opacity: 1; }
       for (const s of shapes) if (!s.batch) s.batch = r.batch;
       totals = r.totals || totals;
       phase = "sent";
+      renderInk(); // returned marks lose the queued look once sent
       renderPins();
       renderToolbar();
       wigglePins();
@@ -1599,14 +1635,17 @@ svg.ink .spotdim.on { opacity: 1; }
       shapes = r.shapes || [];
       notes = r.notes || [];
       totals = r.totals || totals;
+      const inView = (x, y, fn) => { // hit testing only sees the window
+        const sx = scrollX, sy = scrollY, off = y < sy || y >= sy + innerHeight || x < sx || x >= sx + innerWidth;
+        if (off) scrollTo({ left: Math.max(0, x - innerWidth / 2), top: Math.max(0, y - innerHeight / 2), behavior: "instant" });
+        try { return fn(); } finally { if (off) scrollTo({ left: sx, top: sy, behavior: "instant" }); }
+      };
       const fresh = notes.filter((n) => n.restore && !n.ctx);
-      for (const n of fresh) { // made by "Not right" on the server, which can't see the page
-        const sx = scrollX, sy = scrollY, off = n.y < sy || n.y >= sy + innerHeight || n.x < sx || n.x >= sx + innerWidth;
-        if (off) scrollTo({ left: Math.max(0, n.x - innerWidth / 2), top: Math.max(0, n.y - innerHeight / 2), behavior: "instant" }); // hit testing only sees the window
-        n.ctx = ctxAtPoint(n.x, n.y);
-        if (off) scrollTo({ left: sx, top: sy, behavior: "instant" });
-      }
-      if (fresh.length) save();
+      for (const n of fresh) n.ctx = inView(n.x, n.y, () => ctxAtPoint(n.x, n.y)); // made by "Not right" on the server, which can't see the page
+      const back = shapes.filter((s) => s.returned && !s.batch && !s.returned.seen); // drawings "Not right" brought back: which element they sit on now
+      for (const s of back) { const b = bbox(s); s.ctx = inView(b.x + b.w / 2, b.y + b.h / 2, () => ctxForShape(s)); s.returned.seen = true; }
+      if (fresh.length || back.length) save();
+      if (back.length) toast(`${back.length === 1 ? "1 mark is" : `${back.length} marks are`} back on the page, queued. Nothing has been undone: press Send to ask Claude.`); // once: the element is known from now on
       if (totals.open > 0) phase = "sent";
       else if (totals.batches > 0 && totals.unsent === 0) phase = "done";
       renderInk(); renderPins(); renderToolbar();
@@ -1702,6 +1741,44 @@ svg.ink .spotdim.on { opacity: 1; }
     if (alsoN) parts.push(`${alsoN} also changed`);
     return parts.join(" · ") || "Result";
   }
+  // The user's own marks on the result screen. Own gradient copy per drawing (not the page layer's #ca-ink),
+  // in user space so a perfectly straight line still gets a colour.
+  const MARK_WORD = { pen: "a drawn stroke", rect: "a box", ellipse: "a circle", arrow: "an arrow", line: "a line" };
+  let gradSeq = 0;
+  const gradDef = (id, x, y, w, h) => `<defs><linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${x}" y1="${y}" x2="${x + w}" y2="${y + h}"><stop offset="0" stop-color="#9cc3a9"/><stop offset="1" stop-color="#d6bd8e"/></linearGradient></defs>`;
+  function markEls(m, attrs) { // one mark as plain outline elements (no brush), stroke from attrs
+    if (m.type === "pen") return `<polyline ${attrs} points="${m.points.map((p) => p[0] + "," + p[1]).join(" ")}"/>`;
+    if (m.type === "rect") return `<rect ${attrs} x="${m.x}" y="${m.y}" width="${m.w}" height="${m.h}" rx="${Math.min(12, m.w / 2, m.h / 2)}"/>`;
+    if (m.type === "ellipse") return `<ellipse ${attrs} cx="${m.x + m.w / 2}" cy="${m.y + m.h / 2}" rx="${m.w / 2}" ry="${m.h / 2}"/>`;
+    if (m.type === "arrow" || m.type === "line") return `<path ${attrs} d="M${m.x1} ${m.y1} L${m.x2} ${m.y2}"/>`;
+    return "";
+  }
+  // The mark at thumbnail size, as a constant thin line (a shrunk 5 px brush would be thinner than a hair).
+  function thumbSvg(m) {
+    const b = bbox(m), p = Math.max(b.w, b.h, 8) * 0.1;
+    const vb = [b.x - p, b.y - p, Math.max(b.w, 1) + 2 * p, Math.max(b.h, 1) + 2 * p];
+    const id = `rvg${++gradSeq}`;
+    return `<svg viewBox="${vb.join(" ")}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">${gradDef(id, ...vb)}${markEls(m, `fill="none" stroke="url(#${id})" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"`)}</svg>`;
+  }
+  const PIN_THUMB = '<svg viewBox="0 0 40 28" aria-hidden="true"><circle cx="20" cy="11" r="5.5" fill="none" stroke="#9cc3a9" stroke-width="1.5"/><path d="M20 16.5V23" stroke="#d6bd8e" stroke-width="1.5" stroke-linecap="round"/></svg>';
+  function thumbHtml(ink, n) { // n: the note number, or null for a card of marks without a note
+    const m = ink.marks.find((k) => (n == null ? true : k.n === n));
+    if (m) return `<span class="rv-thumb" role="img" aria-label="${n == null ? "Your mark" : `Your mark for note ${n}`}: ${MARK_WORD[m.type] || "a mark"}">${thumbSvg(m)}</span>`;
+    return `<span class="rv-thumb" role="img" aria-label="Note ${n}: a pin, no drawing">${PIN_THUMB}</span>`;
+  }
+  // The marks over a Before picture, in the strip's own coordinates so they scale with it; cut off at the divider.
+  function inkLayer(it) {
+    const c = it.clip, ink = it.ink;
+    if (!ink || !Array.isArray(ink.marks) || !c || !(ink.marks.length || ink.pins.length)) return "";
+    const id = `rvg${++gradSeq}`, pct = (v, of) => ((v / of) * 100).toFixed(2) + "%";
+    const base = 'fill="none" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"';
+    const body = ink.marks.map((m) => markEls(m, `${base} stroke="rgba(12,12,14,.8)" stroke-width="4"`) + markEls(m, `${base} stroke="url(#${id})" stroke-width="2.25"`)).join("");
+    const pins = ink.pins.filter((p) => p.x >= c.x && p.x <= c.x + c.width && p.y >= c.y && p.y <= c.y + c.height)
+      .map((p) => `<span class="rv-pn" style="left:${pct(p.x - c.x, c.width)};top:${pct(p.y - c.y, c.height)}">${p.n}</span>`).join("");
+    return `<div class="rv-ink" aria-hidden="true"><svg viewBox="${c.x} ${c.y} ${c.width} ${c.height}" preserveAspectRatio="none">${gradDef(id, c.x, c.y, c.width, c.height)}${body}</svg>${pins}</div>`;
+  }
+  const MARKS_KEY = "inkback:marks"; // "My marks" on/off, kept next to the toolbar position
+  const marksOn = () => { try { return localStorage.getItem(MARKS_KEY) !== "off"; } catch { return true; } };
   let reviewEl = null, reviewUrls = [];
   async function loadImg(q, which) { // q: "k=2" (a noted spot) or "a=1" (a box under Also changed)
     const r = await F(`${CFG.endpoint}/review/img?${q}&which=${which}`, { headers: H }); // token in a header, never in a URL
@@ -1733,6 +1810,7 @@ svg.ink .spotdim.on { opacity: 1; }
       <span class="tag-b">Before</span><span class="tag-a">After</span><input type="range" min="0" max="100" value="${parseFloat(pos) || 50}" aria-label="Compare before and after"></div>`;
     const zc = z.querySelector(".cmp"), zr = z.querySelector("input");
     const bx = card.querySelector(".rv-box"); if (bx) zc.insertBefore(bx.cloneNode(), zr);
+    const lay = card.querySelector(".rv-ink"); if (lay) zc.insertBefore(lay.cloneNode(true), zr); // the user's marks, same on/off button
     z.querySelector("img.b").src = ib.src; z.querySelector("img.a").src = ia.src;
     zr.addEventListener("input", () => zc.style.setProperty("--pos", zr.value + "%"));
     const x = el("button", "rv-zoom-x"); x.type = "button"; x.textContent = "Close (Esc)";
@@ -1749,14 +1827,16 @@ svg.ink .spotdim.on { opacity: 1; }
     reviewEl = el("div", "review");
     reviewEl.setAttribute("role", "dialog");
     reviewEl.setAttribute("aria-label", "Before and after");
+    const hasInk = rv.items.some((it) => it.ink && Array.isArray(it.ink.marks) && (it.ink.marks.length || it.ink.pins.length));
     const cards = rv.items.map((it) => {
       const lab = { changed: "Changed", same: "No visible change", unchecked: "Couldn't check" }[it.verdict] || "Couldn't check";
       const badge = `<div class="rv-lab ${esc(it.verdict || "unchecked")}">${lab}</div>`;
+      const ink = it.ink && Array.isArray(it.ink.marks) ? it.ink : null; // none on a result from an older version: cards as before
       const label = it.notes.length
-        ? it.notes.map((n) => `<div class="rv-note"><span class="rv-n">${n.n}</span><div>${badge}<div class="rv-t">${esc(n.text || "(no text)")}</div>${n.result ? `<div class="rv-r${n.status === "skipped" ? " skip" : ""}">${n.status === "skipped" ? "Skipped · " : ""}${esc(n.result)}</div>` : ""}</div></div>`).join("")
-        : `<div class="rv-note"><span class="rv-n">·</span><div>${badge}<div class="rv-t">Marked area</div></div></div>`;
+        ? it.notes.map((n) => `<div class="rv-note"><span class="rv-n">${n.n}</span>${ink ? thumbHtml(ink, n.n) : ""}<div>${badge}<div class="rv-t">${esc(n.text || "(no text)")}</div>${n.result ? `<div class="rv-r${n.status === "skipped" ? " skip" : ""}">${n.status === "skipped" ? "Skipped · " : ""}${esc(n.result)}</div>` : ""}</div></div>`).join("")
+        : `<div class="rv-note">${ink && ink.marks.length ? thumbHtml(ink, null) : '<span class="rv-n">·</span>'}<div>${badge}<div class="rv-t">Marked area</div></div></div>`;
       return `<section class="rv-card" data-q="k=${it.k}">${label}
-        <div class="cmp${it.after ? "" : " solo"}" style="--pos:50%"><img class="b" alt="Before"><img class="a" alt="After"><span class="bar-h"><span class="knob"></span></span>
+        <div class="cmp${it.after ? "" : " solo"}" style="--pos:50%"><img class="b" alt="Before"><img class="a" alt="After">${inkLayer(it)}<span class="bar-h"><span class="knob"></span></span>
           <span class="tag-b">Before</span><span class="tag-a">After</span>
           <input type="range" min="0" max="100" value="50" aria-label="Compare before and after"></div><div class="rv-row"><span class="rv-hint">Click the picture to see it at real size</span><button type="button" class="rv-nr" aria-pressed="false">Not right</button></div></section>`;
     }).join("");
@@ -1773,11 +1853,19 @@ svg.ink .spotdim.on { opacity: 1; }
       ? `<div class="rv-also-h">Also changed (${al.items.length})</div>${al.unchecked ? '<div class="rv-also-sub">Part of the page could not be checked.</div>' : ""}${alsoCards}`
       : al.unchecked ? `<div class="rv-also-none">Couldn't check what else changed on the page.</div>` : `<div class="rv-also-none">Nothing else changed</div>`;
     reviewEl.innerHTML = `<div class="rv-sheet">
-      <header class="rv-head"><div class="rv-title">${esc(headline(rv.items, al.items.length))}</div>${rv.summary ? `<div class="rv-sum">${esc(rv.summary)}</div>` : ""}</header>
+      <header class="rv-head"><div class="rv-top"><div class="rv-title">${esc(headline(rv.items, al.items.length))}</div>${hasInk ? `<button type="button" class="rv-marks" aria-pressed="${marksOn()}">My marks: ${marksOn() ? "on" : "off"}</button>` : ""}</div>${rv.summary ? `<div class="rv-sum">${esc(rv.summary)}</div>` : ""}</header>
       <div class="rv-body">${cards}<section class="rv-also">${alsoHtml}</section></div>
-      <footer class="rv-foot"><button type="button" class="rv-more">More feedback</button><button type="button" class="rv-close">Looks good, close</button></footer>
+      <footer class="rv-foot"><span class="rv-qnote" hidden>Nothing is undone yet. Queued notes go to Claude when you press Send.</span><button type="button" class="rv-more">More feedback</button><button type="button" class="rv-close">Looks good, close</button></footer>
     </div>`;
     chrome.appendChild(reviewEl);
+    reviewEl.classList.toggle("marks-off", !marksOn());
+    const mt = reviewEl.querySelector(".rv-marks");
+    if (mt) mt.addEventListener("click", () => {
+      const on = reviewEl.classList.contains("marks-off"); // turning them back on
+      reviewEl.classList.toggle("marks-off", !on);
+      mt.setAttribute("aria-pressed", String(on)); mt.textContent = `My marks: ${on ? "on" : "off"}`;
+      try { localStorage.setItem(MARKS_KEY, on ? "on" : "off"); } catch { /* ignore */ }
+    });
     const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
     for (const card of reviewEl.querySelectorAll(".rv-card")) {
       const k = card.dataset.q, cmp = card.querySelector(".cmp"), range = card.querySelector("input");
@@ -1816,14 +1904,15 @@ svg.ink .spotdim.on { opacity: 1; }
     // "Not right": each pressed card becomes a ready-made note ("Put this back the way it was", the before picture
     // attached) on that spot in the next round. Several can be pressed; More feedback then starts that round.
     const picks = new Set(), moreBtn = reviewEl.querySelector(".rv-more");
-    const nrLabel = () => { moreBtn.textContent = picks.size ? `Next round with ${picks.size} note${picks.size === 1 ? "" : "s"}` : "More feedback"; };
+    const qnote = reviewEl.querySelector(".rv-qnote");
+    const nrLabel = () => { moreBtn.textContent = picks.size ? `Next round with ${picks.size} note${picks.size === 1 ? "" : "s"}` : "More feedback"; qnote.hidden = !picks.size; };
     for (const card of reviewEl.querySelectorAll(".rv-card")) {
       const b = card.querySelector(".rv-nr"), q = card.dataset.q;
       b.addEventListener("click", () => {
         const on = !picks.has(q);
         if (on) picks.add(q); else picks.delete(q);
         b.classList.toggle("on", on); b.setAttribute("aria-pressed", String(on));
-        b.textContent = on ? "Not right · goes back in next round" : "Not right";
+        b.textContent = on ? "Queued for next round" : "Not right"; // queued, not undone: nothing changes until Send
         nrLabel();
       });
     }

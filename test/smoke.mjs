@@ -13,7 +13,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, "..");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-for (const f of ["server/index.mjs", "server/overlay.js", "scripts/ticker.mjs"]) {
+for (const f of ["server/index.mjs", "server/overlay.js", "server/ink.mjs", "scripts/ticker.mjs"]) {
   const r = spawnSync(process.execPath, ["--check", path.join(root, f)], { encoding: "utf8" });
   assert.equal(r.status, 0, `${f} does not parse:\n${r.stderr}`);
 }
@@ -63,17 +63,19 @@ const viaQuery = await fetch(`${endpoint}/state?url=x&t=${token}`);
 assert.equal(viaQuery.status, 403, "query token only works for /events");
 const H = { "Content-Type": "application/json", "X-Inkback-Token": token };
 const url = "http://localhost:1/";
-const put = await (await fetch(`${endpoint}/state`, { method: "PUT", headers: H, body: JSON.stringify({ url, shapes: [{ id: "s", type: "rect", color: "pink", x: 1, y: 1, w: 10, h: 10 }], notes: [{ id: "n", n: 1, x: 2, y: 2, color: "pink", text: "hi" }] }) })).json();
+const put = await (await fetch(`${endpoint}/state`, { method: "PUT", headers: H, body: JSON.stringify({ url, shapes: [{ id: "s", type: "rect", color: "pink", x: 1, y: 1, w: 10, h: 10, returned: { batch: 3, n: 1, note: "n" } }], notes: [{ id: "n", n: 1, x: 2, y: 2, color: "pink", text: "hi", from: { n: 1, text: "make this bigger" } }] }) })).json();
 assert.deepEqual(put.totals, { notes: 1, shapes: 1, pages: 1, unsent: 2, open: 0, batches: 0 });
 const next = await (await fetch(`${endpoint}/note/next`, { method: "POST", headers: H })).json();
 assert.equal(next.n, 2, "note numbering continues after the highest stored note");
 const got = await (await fetch(`${endpoint}/state?url=${encodeURIComponent(url)}`, { headers: H })).json();
 assert.equal(got.notes[0].text, "hi");
+assert.deepEqual(got.shapes[0].returned, { batch: 3, n: 1, note: "n" }, "a returned mark keeps its flag");
+assert.deepEqual(got.notes[0].from, { n: 1, text: "make this bigger" }, "a follow-up note keeps which note it follows");
 assert.equal(got.mode, "poll", "poll is the default delivery");
 await client.callTool({ name: "inkback_progress", arguments: { note: 1, status: "working" } });
 const after = await (await fetch(`${endpoint}/state?url=${encodeURIComponent(url)}`, { headers: H })).json();
 assert.equal(after.notes[0].status, "working", "progress mutates the stored note");
-console.log("✓ bridge: token gate, state round trip, note numbering, progress");
+console.log("✓ bridge: token gate, state round trip (returned marks and follow-up notes too), note numbering, progress");
 
 // The hook finds the session by parent pid and posts a status line: watch it arrive on the SSE stream.
 const events = await fetch(`${endpoint}/events?t=${token}`);

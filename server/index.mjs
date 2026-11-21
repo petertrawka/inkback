@@ -24,6 +24,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { compareFiles, compareRegions } from "./compare.mjs";
 import { bypassCache, keepFresh, matchViewport, viewportOf } from "./fresh.mjs";
+import { inkForCluster, viewInk, returnMarks, followUp, followLines } from "./ink.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const VERSION = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8")).version; // plugin root
@@ -208,6 +209,7 @@ async function pageFor(url, fresh = false, viewport = null) {
 // A document-space rectangle at the size the tab already has. A full-page capture lays the page
 // out again at the whole document's height, which the user sees as the tab resizing; instead
 // scroll the rectangle into view, clip it to the viewport (centred when larger), scroll back.
+// Returns the document rectangle the picture really shows (the result screen lays the user's marks over it).
 async function shootRect(page, clip, file) {
   const vp = await page.evaluate(() => ({ x: scrollX, y: scrollY, w: innerWidth, h: innerHeight }));
   const w = Math.min(clip.width, vp.w), h = Math.min(clip.height, vp.h);
@@ -218,7 +220,8 @@ async function shootRect(page, clip, file) {
   if (!inView) await page.waitForTimeout(60); // let sticky headers and lazy images settle
   try {
     const cx = clampN(x - sx, 0, vp.w - w), cy = clampN(y - sy, 0, vp.h - h); // the scroll stops at the document's edge
-    return await shoot(page, { path: file, scale: "css", clip: { x: cx, y: cy, width: w, height: h } });
+    await shoot(page, { path: file, scale: "css", clip: { x: cx, y: cy, width: w, height: h } });
+    return { x: sx + cx, y: sy + cy, width: w, height: h };
   } finally {
     if (!inView) await page.evaluate(to, [vp.x, vp.y]).catch(() => {});
   }
@@ -341,6 +344,7 @@ function renderContent(batch, sections) {
       const refs = (Array.isArray(note.refs) ? note.refs : []).filter((r) => REF_NAME.test(r) && fs.existsSync(path.join(REFS_DIR, r)));
       for (const r of refs) out += `reference image the user attached (Read it): ${path.join(REFS_DIR, r)}\n`;
       if (note.restore) out += `"Not right" on the last round: make the area ${note.restore.x},${note.restore.y} → ${note.restore.w}×${note.restore.h} look like the attached picture again (it shows how it looked before the last round)\n`;
+      out += followLines(note, !!linked);
       if (linked) { out += `this note is about the area the user drew around: ${shapeWord(linked)}\n`; out += fmtCtx(linked.ctx, "  "); }
       if (cluster && cluster.shapes.length) {
         out += `marks here: ${cluster.shapes.map(shapeWord).join("; ")}\n`;
@@ -424,8 +428,10 @@ async function buildBatch() {
             marks.push(a ? { anchor: a, rect: a.rect } : { rect: bboxOf({ kind: "note", ...n }) });
           }
           for (const s of c.shapes) marks.push({ rect: bboxOf(s) });
-          await shootRect(page, c.clip, before);
-          compare.push({ k, url, viewport, clip: c.clip, anchor, marks, notes: c.notes.map((n) => n.n).sort((a, b) => a - b), shapesOnly: !c.notes.length, before, after: null });
+          const shot = await shootRect(page, c.clip, before);
+          // ink: the user's marks and pins at this moment, drawn over the Before picture on the result screen
+          // (never part of the comparison, which uses the clean pictures) and returned by "Not right".
+          compare.push({ k, url, viewport, clip: c.clip, shot, anchor, marks, notes: c.notes.map((n) => n.n).sort((a, b) => a - b), shapesOnly: !c.notes.length, before, after: null, ink: inkForCluster(c) });
         }
       } catch (e) { log(`before shots skipped: ${String(e.message).split("\n")[0]}`); }
     } finally {
@@ -525,6 +531,7 @@ async function shootAfter(batch) {
           const dx = Math.round(now.x - it.anchor.rect.x), dy = Math.round(now.y - it.anchor.rect.y);
           clip = { ...clip, x: clampN(clip.x + dx, 0, Math.max(0, doc.w - clip.width)), y: clampN(clip.y + dy, 0, Math.max(0, doc.h - clip.height)) };
           it.moved = dx !== 0 || dy !== 0;
+          it.shift = { dx, dy }; // a returned mark moves along by the same distance
         }
         if (it.anchor && !now) { it.gone = true; continue; } // the marked element is no longer on the page: nothing honest to compare
         try {
@@ -565,14 +572,22 @@ async function notRightNotes(picks) {
     if (!m) continue;
     const it = m[1] === "k" ? r.items.find((x) => x.k === Number(m[2])) : ((r.also && r.also.items) || []).find((x) => x.a === Number(m[2]));
     if (!it || !it.before || !it.url) continue;
+    // The user's own card: their drawing comes back too, moved along if the element moved. "Also changed": nothing to return.
+    const noteId = `nr${crypto.randomBytes(5).toString("hex")}`;
+    const back = m[1] === "k" ? returnMarks(it, it.shift, { batch: r.batch, note: noteId }) : { shapes: [], shapeId: null };
+    const from = m[1] === "k" ? followUp(it) : null;
+    const sdx = m[1] === "k" && it.shift ? it.shift.dx : 0, sdy = m[1] === "k" && it.shift ? it.shift.dy : 0;
     const area = m[1] === "k" ? { x: it.clip.x, y: it.clip.y, w: it.clip.width, h: it.clip.height } : { ...it.rect };
     // The pin: the first note's own spot for a noted card, the middle of the box for an "Also changed" one.
     let x = area.x + area.w / 2, y = area.y + area.h / 2;
-    if (m[1] === "k" && it.notes.length) for (const [, p] of state.pages) for (const n of p.notes) if (n.n === it.notes[0] && n.batch === r.batch) { x = n.x; y = n.y; }
+    if (m[1] === "k" && it.notes.length) for (const [, p] of state.pages) for (const n of p.notes) if (n.n === it.notes[0] && n.batch === r.batch) { x = n.x + sdx; y = n.y + sdy; }
     const ref = `${crypto.randomBytes(6).toString("hex")}.png`;
     try { await fsp.mkdir(REFS_DIR, { recursive: true }); await fsp.copyFile(it.before, path.join(REFS_DIR, ref)); }
     catch (e) { log(`not right ${q}: before picture missing (${e.message})`); continue; }
-    out.push({ url: it.url, note: { id: `nr${crypto.randomBytes(5).toString("hex")}`, n: 0, x: Math.round(x), y: Math.round(y), color: "sage", text: PUT_BACK, refs: [ref], status: "draft", ctx: null, batch: null, restore: { x: Math.round(area.x), y: Math.round(area.y), w: Math.round(area.w), h: Math.round(area.h) } } });
+    const note = { id: noteId, n: 0, x: Math.round(x), y: Math.round(y), color: "sage", text: PUT_BACK, refs: [ref], status: "draft", ctx: null, batch: null, restore: { x: Math.round(area.x), y: Math.round(area.y), w: Math.round(area.w), h: Math.round(area.h) } };
+    if (back.shapeId) note.shapeId = back.shapeId;
+    if (from) note.from = from;
+    out.push({ url: it.url, note, shapes: back.shapes });
   }
   return out;
 }
@@ -588,6 +603,8 @@ function reviewView() {
       k: it.k,
       after: !!it.after,
       verdict: it.verdict || "unchecked", // changed | same | unchecked
+      clip: it.shot || it.clip, // the document rectangle the Before picture shows
+      ink: viewInk(it.ink), // null on a result from before this version: no marks, cards as before
       notes: it.notes.map((n) => { const k = noteOf(n); return { n, text: k ? k.text : "", status: k ? k.status : "done", result: k ? k.result || "" : "" }; }),
     })),
   };
@@ -935,7 +952,7 @@ const server = http.createServer(async (req, res) => {
       if (id != null) for (const [, p] of state.pages) { p.notes = p.notes.filter((n) => n.batch !== id); p.shapes = p.shapes.filter((x) => x.batch !== id); }
       let max = 0;
       for (const pg of state.pages.values()) for (const n of pg.notes) if (n.n > max) max = n.n;
-      for (const m of made) { m.note.n = ++max; pageState(m.url).notes.push(m.note); }
+      for (const m of made) { m.note.n = ++max; const p = pageState(m.url); p.notes.push(m.note); p.shapes.push(...(m.shapes || [])); }
       if (max >= state.nextNote) state.nextNote = max + 1;
       return json(res, 200, { ok: true, notRight: made.length, totals: totals() });
     }
