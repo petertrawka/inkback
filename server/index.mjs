@@ -22,7 +22,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
-import { compareFiles } from "./compare.mjs";
+import { compareFiles, compareRegions } from "./compare.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const VERSION = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8")).version; // plugin root
@@ -343,6 +343,17 @@ function renderContent(batch, sections) {
   return out;
 }
 
+// The whole page, top to bottom, from a fresh copy in a background tab (nothing of ours drawn on it).
+async function shootWhole(url, file) {
+  const { page, temp } = await pageFor(url, true);
+  try {
+    await page.evaluate(() => window.__inkback && window.__inkback.hide(true)).catch(() => {});
+    await shoot(page, { path: file, fullPage: true, scale: "css" });
+  } finally {
+    if (temp) await page.close().catch(() => {});
+  }
+}
+
 async function buildBatch() {
   // Snapshot: a PUT /state during the build replaces the live arrays.
   const pages = [...state.pages.entries()]
@@ -397,8 +408,20 @@ async function buildBatch() {
       if (temp) await page.close().catch(() => {});
     }
   }
+  // Whole-page "before" for the "Also changed" strip: a fresh copy of each page in a tab behind the user's,
+  // laid out at full height, so pages longer than the window are compared in full and the user's tab never resizes.
+  const wholes = [];
+  if (compare.length) {
+    const cdir = path.join(COMPARE_DIR, `batch-${id}`);
+    await fsp.mkdir(cdir, { recursive: true });
+    for (const [i, s] of sections.entries()) {
+      const before = path.join(cdir, `p${i + 1}-whole-before.png`);
+      try { await shootWhole(s.url, before); wholes.push({ url: s.url, before }); }
+      catch (e) { log(`whole-page before shot skipped: ${String(e.message).split("\n")[0]}`); wholes.push({ url: s.url, before: null }); }
+    }
+  }
   const batch = {
-    id, dir, compare,
+    id, dir, compare, wholes,
     notes: sections.reduce((n, s) => n + s.pageState.notes.length, 0),
     pages: sections.length,
     createdAt: Date.now(),
@@ -448,10 +471,13 @@ async function removeBatchFiles(batch) {
 
 // After Claude is done: the same spots again on a fresh load of each page (picks up changes on apps without hot reload).
 async function shootAfter(batch) {
+  // also: what changed away from the user's notes. unchecked = we could not look (for at least one page).
+  const also = batch.also = { items: [], unchecked: false };
   const byUrl = new Map();
   for (const it of batch.compare || []) { if (!byUrl.has(it.url)) byUrl.set(it.url, []); byUrl.get(it.url).push(it); }
   for (const [url, items] of byUrl) {
     let page = null, temp = false;
+    const excl = []; // page rectangles the user's notes already cover: changes in there are not "also"
     try {
       ({ page, temp } = await pageFor(url, true));
       // Bypass the cache and load again: otherwise Chrome can serve the old CSS/JS and "after" equals "before".
@@ -469,6 +495,7 @@ async function shootAfter(batch) {
         it.verdict = "unchecked"; // Changed / No visible change need a real after picture; until we have one we say so
         // Follow the anchored element if it moved; otherwise the same spot on the page.
         let clip = it.clip;
+        excl.push({ x: it.clip.x, y: it.clip.y, w: it.clip.width, h: it.clip.height });
         const now = it.anchor ? await page.evaluate((a) => window.__inkback.locate(a), it.anchor).catch(() => null) : null;
         if (now) {
           const doc = await page.evaluate(() => ({ w: document.documentElement.scrollWidth, h: document.documentElement.scrollHeight }));
@@ -476,13 +503,25 @@ async function shootAfter(batch) {
           clip = { ...clip, x: clampN(clip.x + dx, 0, Math.max(0, doc.w - clip.width)), y: clampN(clip.y + dy, 0, Math.max(0, doc.h - clip.height)) };
           it.moved = dx !== 0 || dy !== 0;
         }
+        if (now) excl.push({ x: clip.x, y: clip.y, w: clip.width, h: clip.height });
         if (it.anchor && !now) { it.gone = true; continue; } // the marked element is no longer on the page: nothing honest to compare
         try {
           await shootRect(page, clip, file); it.after = file;
           it.verdict = await compareFiles(page, it.before, file) === "same" ? "same" : "changed";
         } catch (e) { log(`after shot or compare ${it.k} failed: ${String(e.message).split("\n")[0]}`); it.verdict = "unchecked"; }
       }
+      // Whole page after, compared with the whole page before, minus the noted areas.
+      const whole = (batch.wholes || []).find((w) => w.url === url);
+      try {
+        if (!whole || !whole.before) throw new Error("no whole-page before picture");
+        const cdir = path.dirname(whole.before);
+        const afterWhole = path.join(cdir, `${path.basename(whole.before).replace(/-before\.png$/, "")}-after.png`);
+        await shoot(page, { path: afterWhole, fullPage: true, scale: "css" });
+        const found = await compareRegions(page, whole.before, afterWhole, excl, path.join(cdir, "also"), also.items.length + 1);
+        for (const r of found) also.items.push({ ...r, url });
+      } catch (e) { log(`whole-page compare for ${url} failed: ${String(e.message).split("\n")[0]}`); also.unchecked = true; }
     } catch (e) {
+      also.unchecked = true;
       log(`after shots for ${url} failed: ${String(e.message).split("\n")[0]}`);
     } finally {
       if (page && temp) await page.close().catch(() => {});
@@ -500,6 +539,7 @@ function reviewView() {
   return {
     batch: r.batch,
     summary: r.summary,
+    also: { unchecked: !!(r.also && r.also.unchecked), items: ((r.also && r.also.items) || []).map((a) => ({ a: a.a, box: a.box })) },
     items: r.items.map((it) => ({
       k: it.k,
       after: !!it.after,
@@ -634,7 +674,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
           state.sending = true; // no Send while the after pictures are taken
           try { await shootAfter(batch); } finally { state.sending = false; }
           const items = batch.compare; // every spot gets a result card; spots we could not check say so
-          if (items.length) state.review = { batch: batch.id, summary, items };
+          if (items.length) state.review = { batch: batch.id, summary, items, also: batch.also || { items: [], unchecked: true } };
         }
       }
       broadcast({ type: "done", summary, batch: batch ? batch.id : null, review: !!state.review });
@@ -825,7 +865,8 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "GET" && url.pathname === "/review/img") {
       const k = Number(url.searchParams.get("k")), which = url.searchParams.get("which");
-      const it = state.review && state.review.items.find((x) => x.k === k);
+      const an = url.searchParams.get("a"); // a box under "Also changed" instead of a noted spot
+      const it = state.review && (an != null ? state.review.also && state.review.also.items.find((x) => x.a === Number(an)) : state.review.items.find((x) => x.k === k));
       const file = it && (which === "before" ? it.before : which === "after" ? it.after : null);
       if (!file) return json(res, 404, { ok: false, error: "not found" });
       const buf = await fsp.readFile(file).catch(() => null);

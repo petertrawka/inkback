@@ -524,6 +524,12 @@ svg.ink .spotdim.on { opacity: 1; }
 .cmp .tag-b, .cmp .tag-a { position: absolute; top: 10px; padding: 3px 8px; border-radius: 6px; font-size: 11.5px; color: var(--fg); background: rgba(28,28,31,.82); border: 1px solid var(--hair); pointer-events: none; }
 .cmp .tag-b { left: 10px; } .cmp .tag-a { right: 10px; }
 .cmp input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: ew-resize; }
+.rv-also { display: grid; gap: 14px; padding-top: 18px; border-top: 1px solid var(--hair); }
+.rv-also-h { font-size: 14px; font-weight: 500; color: var(--fg); }
+.rv-also-none { font-size: 13.5px; color: var(--label); }
+.rv-also-sub { font-size: 12.5px; color: var(--faint); margin-top: 2px; }
+.rv-lab.also { color: var(--fg); box-shadow: inset 0 0 0 1px var(--warn); }
+.rv-box { position: absolute; border: 2px solid var(--warn); border-radius: 4px; box-shadow: 0 0 0 1px rgba(0,0,0,.35); pointer-events: none; }
 .rv-hint { margin-top: 6px; font-size: 12px; color: var(--faint); }
 .rv-zoom { position: absolute; inset: 0; z-index: 2; overflow: auto; background: rgba(8,8,10,.92); padding: 56px 16px 16px; }
 .rv-zoom .cmp { margin: 0 auto; border-radius: 0; max-width: none; }
@@ -1645,15 +1651,16 @@ svg.ink .spotdim.on { opacity: 1; }
   // Before / after (after Claude's inkback_done)
   // ---------------------------------------------------------------------------
   // "2 changed · 1 no visible change": the sheet's title says what really happened, never a blanket "Done".
-  function headline(items) {
+  function headline(items, alsoN) {
     const c = { changed: 0, same: 0, unchecked: 0 };
     for (const it of items) c[it.verdict in c ? it.verdict : "unchecked"] += it.notes.length || 1;
     const parts = [c.changed && `${c.changed} changed`, c.same && `${c.same} no visible change`, c.unchecked && `${c.unchecked} couldn't check`].filter(Boolean);
+    if (alsoN) parts.push(`${alsoN} also changed`);
     return parts.join(" · ") || "Result";
   }
   let reviewEl = null, reviewUrls = [];
-  async function loadImg(k, which) {
-    const r = await F(`${CFG.endpoint}/review/img?k=${k}&which=${which}`, { headers: H }); // token in a header, never in a URL
+  async function loadImg(q, which) { // q: "k=2" (a noted spot) or "a=1" (a box under Also changed)
+    const r = await F(`${CFG.endpoint}/review/img?${q}&which=${which}`, { headers: H }); // token in a header, never in a URL
     if (!r.ok) throw new Error("image");
     const u = URL.createObjectURL(await r.blob());
     reviewUrls.push(u);
@@ -1681,6 +1688,7 @@ svg.ink .spotdim.on { opacity: 1; }
     z.innerHTML = `<div class="cmp ready" style="--pos:${pos || "50%"};width:${ib.naturalWidth}px"><img class="b" alt="Before"><img class="a" alt="After"><span class="bar-h"><span class="knob"></span></span>
       <span class="tag-b">Before</span><span class="tag-a">After</span><input type="range" min="0" max="100" value="${parseFloat(pos) || 50}" aria-label="Compare before and after"></div>`;
     const zc = z.querySelector(".cmp"), zr = z.querySelector("input");
+    const bx = card.querySelector(".rv-box"); if (bx) zc.insertBefore(bx.cloneNode(), zr);
     z.querySelector("img.b").src = ib.src; z.querySelector("img.a").src = ia.src;
     zr.addEventListener("input", () => zc.style.setProperty("--pos", zr.value + "%"));
     const x = el("button", "rv-zoom-x"); x.type = "button"; x.textContent = "Close (Esc)";
@@ -1703,20 +1711,32 @@ svg.ink .spotdim.on { opacity: 1; }
       const label = it.notes.length
         ? it.notes.map((n) => `<div class="rv-note"><span class="rv-n">${n.n}</span><div>${badge}<div class="rv-t">${esc(n.text || "(no text)")}</div>${n.result ? `<div class="rv-r${n.status === "skipped" ? " skip" : ""}">${n.status === "skipped" ? "Skipped · " : ""}${esc(n.result)}</div>` : ""}</div></div>`).join("")
         : `<div class="rv-note"><span class="rv-n">·</span><div>${badge}<div class="rv-t">Marked area</div></div></div>`;
-      return `<section class="rv-card" data-k="${it.k}">${label}
+      return `<section class="rv-card" data-q="k=${it.k}">${label}
         <div class="cmp${it.after ? "" : " solo"}" style="--pos:50%"><img class="b" alt="Before"><img class="a" alt="After"><span class="bar-h"><span class="knob"></span></span>
           <span class="tag-b">Before</span><span class="tag-a">After</span>
           <input type="range" min="0" max="100" value="50" aria-label="Compare before and after"></div><div class="rv-hint">Click the picture to see it at real size</div></section>`;
     }).join("");
+    // "Also changed": areas that moved away from the user's notes. It sorts and highlights, never hides.
+    const al = rv.also || { items: [], unchecked: true };
+    const alsoCards = al.items.map((it) => {
+      const bx = it.box ? `<span class="rv-box" style="left:${(it.box.l * 100).toFixed(2)}%;top:${(it.box.t * 100).toFixed(2)}%;width:${(it.box.w * 100).toFixed(2)}%;height:${(it.box.h * 100).toFixed(2)}%"></span>` : "";
+      return `<section class="rv-card" data-q="a=${it.a}"><div class="rv-note"><span class="rv-n">·</span><div><div class="rv-lab also">Changed away from your notes</div></div></div>
+        <div class="cmp" style="--pos:50%"><img class="b" alt="Before"><img class="a" alt="After"><span class="bar-h"><span class="knob"></span></span>${bx}
+          <span class="tag-b">Before</span><span class="tag-a">After</span>
+          <input type="range" min="0" max="100" value="50" aria-label="Compare before and after"></div><div class="rv-hint">Click the picture to see it at real size</div></section>`;
+    }).join("");
+    const alsoHtml = al.items.length
+      ? `<div class="rv-also-h">Also changed (${al.items.length})</div>${al.unchecked ? '<div class="rv-also-sub">Part of the page could not be checked.</div>' : ""}${alsoCards}`
+      : al.unchecked ? `<div class="rv-also-none">Couldn't check what else changed on the page.</div>` : `<div class="rv-also-none">Nothing else changed</div>`;
     reviewEl.innerHTML = `<div class="rv-sheet">
-      <header class="rv-head"><div class="rv-title">${esc(headline(rv.items))}</div>${rv.summary ? `<div class="rv-sum">${esc(rv.summary)}</div>` : ""}</header>
-      <div class="rv-body">${cards}</div>
+      <header class="rv-head"><div class="rv-title">${esc(headline(rv.items, al.items.length))}</div>${rv.summary ? `<div class="rv-sum">${esc(rv.summary)}</div>` : ""}</header>
+      <div class="rv-body">${cards}<section class="rv-also">${alsoHtml}</section></div>
       <footer class="rv-foot"><button type="button" class="rv-more">More feedback</button><button type="button" class="rv-close">Looks good, close</button></footer>
     </div>`;
     chrome.appendChild(reviewEl);
     const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
     for (const card of reviewEl.querySelectorAll(".rv-card")) {
-      const k = card.dataset.k, cmp = card.querySelector(".cmp"), range = card.querySelector("input");
+      const k = card.dataset.q, cmp = card.querySelector(".cmp"), range = card.querySelector("input");
       range.addEventListener("input", () => cmp.style.setProperty("--pos", range.value + "%"));
       // A click (not a drag) opens the picture at real size; a drag moves the slider.
       let down = null;
