@@ -4,10 +4,7 @@
 
 For people building with Claude Code in the terminal or VS Code. Local, no account.
 
-<!-- GIF goes here (30 s, real run): mark a button, Claude fixes it, Inkback catches the footer it broke, one click sends it back. Save as assets/inkback-demo.gif and replace the hero image line below with:
-![Inkback in 30 seconds: a button is marked, Claude fixes it, Inkback catches the footer it also changed, and one click sends it back.](assets/inkback-demo.gif)
--->
-![Inkback: a pricing page split into before and after. On the left the weak Upgrade link is circled in ink with the note "Make this the main button"; on the right it is a bold black button marked Done.](assets/inkback-hero.jpg)
+![Inkback's result screen for a ceramics shop page, headed "1 changed · 1 also changed". Note 1, "Make this the main button", is marked Changed with Claude's line "Turned the link into a solid button." The before/after slider splits the spot down the middle: the user's indigo pen circle around a faint "Shop the collection" link on the Before side, a solid black button on the After side.](assets/inkback-hero.png)
 
 ## Install
 
@@ -18,22 +15,23 @@ For people building with Claude Code in the terminal or VS Code. Local, no accou
 
 Then, with your app running, run `/inkback:review http://localhost:3000` in Claude Code. No special flags.
 
-**Limits:** Google Chrome and Node 20+ only. Local addresses only (localhost, 127.0.0.1, *.local, *.test).
-
 ## What it does
 
-Comment and sketch right on the page, press **Send to Claude**, and Claude edits the code. When it's done, every note comes back marked *Changed*, *No visible change* or *Couldn't check*, with a before/after slider, and anything else on the page that changed shows up under *Also changed*.
+Draw and comment right on the page, press **Send to Claude**, and Claude edits the code. When it's done, every note comes back with a before/after slider and one label: *Changed*, *No visible change* or *Couldn't check*. Anything else on the page that changed shows up under *Also changed*.
 
+- **Ink brush pen.** Circle what needs changing. Strokes taper like a real pen, in indigo with a soft white halo, so they read on light and dark pages. Every stroke opens a linked note.
 - **Comment anywhere.** Double-click to leave a note. Paste or drop up to 4 reference images into it.
-- **Ink brush pen.** Strokes thin out when you draw fast and taper at both ends, in solid indigo with a soft white halo, so they read on light and dark pages. Every stroke opens a linked comment.
 - **Spotlight areas** (key `A`). Drag a box and the rest of the page dims while you write.
 - **Send to Claude.** Your notes, the element under each one (with its React component and source file when known) and screenshots land in your Claude Code session.
-- **Before / after.** When Claude finishes, each spot comes back with a slider. The "after" picture follows the element even if content above it moved.
-- **Also changed.** After each round Inkback compares the whole page. Areas that changed away from your notes are boxed and listed, each with its own slider.
-- **Two endings.** *Looks good, close* ends the round and closes the window. *More feedback* reloads the page for another round.
-- **Not right.** Every result (asked-for or "Also changed") has a *Not right* button. Press it on as many as you like: the next round starts with a ready-made note on each spot, "Put this back the way it was", with the before picture attached. Edit the text or add more notes, then Send as usual.
-- **Ink back.** "Ink back" means your own pen marks and note numbers come back with Claude's answer: a small copy on each result, and on the Before picture where you drew it. Press *Not right* and the drawing returns to the page, queued for the next round. Limit: a returned mark follows its element, but can sit slightly off after the page reflows.
+- **Before / after.** Each spot comes back with a slider. The "after" picture follows the element even if content above it moved.
+- **Also changed.** Inkback compares the whole page after each round. Areas that changed away from your notes are boxed and listed, each with its own slider.
+- **Ink back.** Your own pen marks and note numbers come back with the result: on the Before picture where you drew them, and as a small copy on each card.
+- **Not right.** Every result has a *Not right* button. The next round starts with a ready-made note on each spot you picked ("Put this back the way it was", before picture attached) and your drawing back on the page. Edit it or add more, then Send.
+- **Two endings.** *Looks good, close* ends the round. *More feedback* reloads the page for another round.
+- **First use.** The first time, Inkback opens with the pen ready and one quiet line in the toolbar ("Circle what needs changing", then "Send it. See it back."). It's gone after your first finished round.
 - **Local only.** It runs on your machine in its own Chrome window. No cloud, and no AI calls beyond your Claude session.
+
+**Limits:** Google Chrome and Node 20+ only. Local addresses only (localhost, 127.0.0.1, *.local, *.test). A returned pen mark follows its element, but can sit slightly off after the page reflows.
 
 ## How to use it
 
