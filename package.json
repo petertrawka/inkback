@@ -1,6 +1,6 @@
 {
   "name": "inkback",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "type": "module",
   "description": "Channel server, browser driver and overlay for the Inkback plugin.",
@@ -12,6 +12,6 @@
     "playwright-core": "^1.58.0"
   },
   "scripts": {
-    "test": "node test/smoke.mjs && node test/compare.mjs && node test/fresh.mjs"
+    "test": "node test/smoke.mjs && node test/compare.mjs && node test/fresh.mjs && node test/before.mjs"
   }
 }

@@ -23,7 +23,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { compareFiles, compareRegions } from "./compare.mjs";
-import { bypassCache } from "./fresh.mjs";
+import { bypassCache, keepFresh, matchViewport, viewportOf } from "./fresh.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const VERSION = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8")).version; // plugin root
@@ -127,6 +127,8 @@ async function launchBrowser() {
     for (const w of state.waiters.splice(0)) w(null); // a pending inkback_wait returns "closed" right away
     log("browser closed");
   });
+  // Every tab, the user's included: a reload of the user's tab must show the files as they are now (see fresh.mjs).
+  keepFresh(context, (e) => log(`cache bypass failed: ${String(e.message).split("\n")[0]}`));
   await context.addInitScript(bootstrapSource(false));
   return context;
 }
@@ -177,13 +179,24 @@ async function backgroundPage(ctx) {
   return ctx.newPage();
 }
 
-async function pageFor(url, fresh = false) {
+// The tab the user is looking at for this URL: the visible one first (they just pressed Send in it), then the
+// tab /inkback:review opened, then any other. Another tab on the same URL (a leftover, a second window) may hold an old copy.
+async function userTab(live, url) {
+  const same = live.filter((p) => sameUrl(p.url(), url));
+  if (same.length < 2) return same[0] || null;
+  const seen = await Promise.all(same.map((p) => p.evaluate(() => document.visibilityState === "visible").catch(() => false)));
+  return same.find((p, i) => seen[i] && p === mainPage) || same.find((p, i) => seen[i]) || same.find((p) => p === mainPage) || same[0];
+}
+
+// fresh: a new background tab, loaded from the server, laid out at viewport (the user's tab size) when given.
+async function pageFor(url, fresh = false, viewport = null) {
   const ctx = await ensureBrowser();
   const live = ctx.pages().filter((p) => !p.isClosed());
-  const found = !fresh && live.find((p) => sameUrl(p.url(), url));
+  const found = !fresh && (await userTab(live, url));
   if (found) return { page: found, temp: false };
   const page = await backgroundPage(ctx);
   await page.addInitScript("window.__INKBACK_RENDER_ONLY__ = true;");
+  await matchViewport(page, viewport).catch((e) => log(`viewport match failed: ${String(e.message).split("\n")[0]}`));
   // Straight from the server: a static server's old files otherwise come from Chrome's cache and the copy shows the old page.
   await bypassCache(page).catch((e) => log(`cache bypass failed: ${String(e.message).split("\n")[0]}`));
   await page.goto(url, { waitUntil: "networkidle", timeout: 30000 }).catch(() => {});
@@ -246,6 +259,7 @@ function bboxOf(item) {
 }
 
 const clampN = (v, a, b) => Math.max(a, Math.min(b, v));
+const MARK_PAD = 12; // around a marked element or shape, left out of the "Also changed" check
 function pad(b, p) { return { x: b.x - p, y: b.y - p, w: b.w + 2 * p, h: b.h + 2 * p }; }
 // Each picture is a full-width strip, so two notes belong together when their strips overlap vertically (sideways does not matter).
 function overlaps(a, b) { return a.y < b.y + b.h && b.y < a.y + a.h; }
@@ -348,8 +362,8 @@ function renderContent(batch, sections) {
 }
 
 // The whole page, top to bottom, from a fresh copy in a background tab (nothing of ours drawn on it).
-async function shootWhole(url, file) {
-  const { page, temp } = await pageFor(url, true);
+async function shootWhole(url, file, viewport) {
+  const { page, temp } = await pageFor(url, true, viewport);
   try {
     await page.evaluate(() => window.__inkback && window.__inkback.hide(true)).catch(() => {});
     await shoot(page, { path: file, fullPage: true, scale: "css" });
@@ -376,7 +390,7 @@ async function buildBatch() {
     try {
       await page.evaluate(() => window.__inkback && window.__inkback.capture(true));
       await page.waitForTimeout(80);
-      const viewport = page.viewportSize() || (await page.evaluate(() => ({ width: innerWidth, height: innerHeight })));
+      const viewport = await viewportOf(page); // what the user sees, also when the window or an emulated size differs
       const doc = await page.evaluate(() => ({
         w: Math.max(document.documentElement.scrollWidth, document.body ? document.body.scrollWidth : 0),
         h: Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0),
@@ -402,8 +416,16 @@ async function buildBatch() {
           const before = path.join(cdir, `c${k}-before.png`);
           const pt = c.notes.length ? [c.notes[0].x, c.notes[0].y] : (() => { const b = bboxOf(c.shapes[0]); return [b.x + b.w / 2, b.y + b.h / 2]; })();
           const anchor = await page.evaluate(([x, y]) => window.__inkback && window.__inkback.anchor ? window.__inkback.anchor(x, y) : null, pt).catch(() => null);
+          // What the user marked, for the "Also changed" check: each note's element (followed after the edit) and each shape.
+          // Only these are left out of that check, not the whole picture strip around them.
+          const marks = [];
+          for (const n of c.notes) {
+            const a = n === c.notes[0] ? anchor : await page.evaluate(([x, y]) => window.__inkback && window.__inkback.anchor ? window.__inkback.anchor(x, y) : null, [n.x, n.y]).catch(() => null);
+            marks.push(a ? { anchor: a, rect: a.rect } : { rect: bboxOf({ kind: "note", ...n }) });
+          }
+          for (const s of c.shapes) marks.push({ rect: bboxOf(s) });
           await shootRect(page, c.clip, before);
-          compare.push({ k, url, clip: c.clip, anchor, notes: c.notes.map((n) => n.n).sort((a, b) => a - b), shapesOnly: !c.notes.length, before, after: null });
+          compare.push({ k, url, viewport, clip: c.clip, anchor, marks, notes: c.notes.map((n) => n.n).sort((a, b) => a - b), shapesOnly: !c.notes.length, before, after: null });
         }
       } catch (e) { log(`before shots skipped: ${String(e.message).split("\n")[0]}`); }
     } finally {
@@ -420,7 +442,7 @@ async function buildBatch() {
     await fsp.mkdir(cdir, { recursive: true });
     for (const [i, s] of sections.entries()) {
       const before = path.join(cdir, `p${i + 1}-whole-before.png`);
-      try { await shootWhole(s.url, before); wholes.push({ url: s.url, before }); }
+      try { await shootWhole(s.url, before, s.viewport); wholes.push({ url: s.url, before, viewport: s.viewport }); }
       catch (e) { log(`whole-page before shot skipped: ${String(e.message).split("\n")[0]}`); wholes.push({ url: s.url, before: null }); }
     }
   }
@@ -483,14 +505,20 @@ async function shootAfter(batch) {
     let page = null, temp = false;
     const excl = []; // page rectangles the user's notes already cover: changes in there are not "also"
     try {
-      ({ page, temp } = await pageFor(url, true)); // a new tab loaded with Chrome's cache off (see fresh.mjs)
+      // A new tab loaded with Chrome's cache off (see fresh.mjs), at the size the before pictures were taken at.
+      ({ page, temp } = await pageFor(url, true, items[0].viewport));
       await page.evaluate(() => window.__inkback && window.__inkback.hide(true)).catch(() => {});
       for (const it of items) {
         const file = it.before.replace(/-before\.png$/, "-after.png");
         it.verdict = "unchecked"; // Changed / No visible change need a real after picture; until we have one we say so
         // Follow the anchored element if it moved; otherwise the same spot on the page.
         let clip = it.clip;
-        excl.push({ x: it.clip.x, y: it.clip.y, w: it.clip.width, h: it.clip.height });
+        for (const m of it.marks || []) {
+          excl.push(pad(m.rect, MARK_PAD));
+          const at = m.anchor ? await page.evaluate((a) => window.__inkback.locate(a), m.anchor).catch(() => null) : null;
+          if (at) excl.push(pad(at, MARK_PAD)); // where the marked element is now (it may have grown or moved)
+        }
+        if (!it.marks) excl.push({ x: it.clip.x, y: it.clip.y, w: it.clip.width, h: it.clip.height });
         const now = it.anchor ? await page.evaluate((a) => window.__inkback.locate(a), it.anchor).catch(() => null) : null;
         if (now) {
           const doc = await page.evaluate(() => ({ w: document.documentElement.scrollWidth, h: document.documentElement.scrollHeight }));
@@ -498,7 +526,6 @@ async function shootAfter(batch) {
           clip = { ...clip, x: clampN(clip.x + dx, 0, Math.max(0, doc.w - clip.width)), y: clampN(clip.y + dy, 0, Math.max(0, doc.h - clip.height)) };
           it.moved = dx !== 0 || dy !== 0;
         }
-        if (now) excl.push({ x: clip.x, y: clip.y, w: clip.width, h: clip.height });
         if (it.anchor && !now) { it.gone = true; continue; } // the marked element is no longer on the page: nothing honest to compare
         try {
           await shootRect(page, clip, file); it.after = file;
@@ -706,7 +733,8 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
       // the page from before Claude's edit (no hot reload), and is never navigated or resized by us.
       const target = args.url ? assertLocal(String(args.url)) : mainPage && !mainPage.isClosed() ? mainPage.url() : null;
       if (!target) throw new Error("No page open. Pass a url.");
-      const { page, temp } = await pageFor(target, true);
+      const size = mainPage && !mainPage.isClosed() ? await viewportOf(mainPage).catch(() => null) : null;
+      const { page, temp } = await pageFor(target, true, size);
       await fsp.mkdir(SHOTS_DIR, { recursive: true });
       const file = path.join(SHOTS_DIR, `verify-${Date.now()}.png`);
       if (!args.chrome) await page.evaluate(() => window.__inkback && window.__inkback.capture(true)).catch(() => {});
