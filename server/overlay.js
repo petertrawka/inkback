@@ -471,8 +471,9 @@ svg.ink g.shape.leaving { opacity: 0; }
 .pop .acts .del { width: 30px; height: 30px; border-radius: var(--r-ctl); color: var(--faint); }
 @media (hover: hover) and (pointer: fine) { .pop .acts .del:hover { color: var(--stop); background: rgba(255,255,255,.04); } }
 /* Ink brush + spotlight area (Peter, 2026-11-14): subtle, artistic, one moment of glow */
-svg.ink .brush { filter: drop-shadow(0 1px 1.5px rgba(0,0,0,.35)); }
-svg.ink g.draft .brush { filter: drop-shadow(0 0 6px rgba(156,195,169,.55)) drop-shadow(0 1px 1.5px rgba(0,0,0,.3)); }
+/* Dark edge under the ink (stroke painted first, fill on top) so a stroke reads on white, grey and dark pages. */
+svg.ink .brush { stroke: rgba(12,12,14,.85); stroke-width: 2.5; stroke-linejoin: round; paint-order: stroke; filter: drop-shadow(0 1px 1.5px rgba(0,0,0,.35)); }
+svg.ink g.draft .brush { filter: none; } /* no glow while drawing: cheaper per frame */
 svg.ink g.shape.fresh .brush { animation: inkSettle 520ms var(--ease-out) both; }
 @keyframes inkSettle {
   from { filter: drop-shadow(0 0 7px rgba(156,195,169,.6)) drop-shadow(0 1px 1.5px rgba(0,0,0,.3)); }
@@ -480,6 +481,8 @@ svg.ink g.shape.fresh .brush { animation: inkSettle 520ms var(--ease-out) both; 
 }
 svg.ink g.pen .halo, svg.ink g.rect .halo { stroke: transparent; }
 svg.ink g.pen .halo { stroke-width: 12; }
+svg.ink .area-edge { fill: none; stroke: rgba(12,12,14,.85); stroke-width: 3.6; stroke-dasharray: 1; stroke-dashoffset: 0; }
+svg.ink g.shape.fresh .area-edge { animation: areaDraw 560ms var(--ease-out) both; }
 svg.ink .area { fill: none; stroke-width: 1.6; stroke-dasharray: 1; stroke-dashoffset: 0; filter: drop-shadow(0 1px 2px rgba(0,0,0,.4)); }
 svg.ink g.shape.fresh .area { animation: areaDraw 560ms var(--ease-out) both; }
 @keyframes areaDraw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
@@ -558,7 +561,7 @@ svg.ink .spotdim.on { opacity: 1; }
   .tb:active, .inkb:active, .pop .ok:active, .send:active, .pin .dot:active { transform: none; }
   .pop.closing { animation: fadeOut 120ms ease forwards !important; }
   .pin .dot.absorb { animation: none !important; }
-  svg.ink g.shape.fresh .brush, svg.ink g.shape.fresh .area { animation: none !important; }
+  svg.ink g.shape.fresh .brush, svg.ink g.shape.fresh .area, svg.ink g.shape.fresh .area-edge { animation: none !important; }
   .rv-sheet { animation: rvIn 160ms ease both !important; }
 }
 @keyframes fadeOnly { from { opacity: 0; } to { opacity: 1; } }
@@ -801,26 +804,35 @@ svg.ink .spotdim.on { opacity: 1; }
   }
   // Ink brush: a filled outline around the stroke. Fast segments draw thinner, slow ones fuller,
   // and both ends taper, so a quick circle reads like a brush pen rather than a marker.
-  function brushPath(raw) {
-    if (raw.length < 2) return "";
+  // Widths stay between about 3.9 and 6 px (slight, never a hairline); the ends taper but never below 1.6 px.
+  function brushGeom(raw) {
+    if (raw.length < 2) return null;
     const pts = raw.map((p, i) => { // light smoothing so the outline doesn't jitter
       const a = raw[Math.max(0, i - 1)], b = raw[Math.min(raw.length - 1, i + 1)];
       return [(a[0] + 2 * p[0] + b[0]) / 4, (a[1] + 2 * p[1] + b[1]) / 4];
     });
     const n = pts.length, BASE = 5.2;
     let w = BASE;
-    const L = [], R = [];
+    const L = [], R = [], W = [];
     for (let i = 0; i < n; i++) {
       const a = pts[Math.max(0, i - 1)], b = pts[Math.min(n - 1, i + 1)];
       const speed = Math.hypot(pts[i][0] - a[0], pts[i][1] - a[1]);
-      w += (BASE * clamp(1.3 - speed / 18, 0.42, 1.2) - w) * 0.35;
+      w += (BASE * clamp(1.3 - speed / 18, 0.75, 1.15) - w) * 0.35;
       const taper = Math.min(1, 0.35 + i / 5, 0.25 + (n - 1 - i) / 7);
-      const half = (w * taper) / 2;
+      const half = Math.max(w * taper / 2, 0.8);
+      W.push(half * 2);
       let dx = b[0] - a[0], dy = b[1] - a[1];
       const len = Math.hypot(dx, dy) || 1; dx /= len; dy /= len;
       L.push([pts[i][0] - dy * half, pts[i][1] + dx * half]);
       R.push([pts[i][0] + dy * half, pts[i][1] - dx * half]);
     }
+    return { L, R, W, n };
+  }
+  function brushWidths(raw) { const g = brushGeom(raw); return g ? g.W : []; }
+  function brushPath(raw) {
+    const g = brushGeom(raw);
+    if (!g) return "";
+    const { L, R, n } = g;
     const f = (v) => Math.round(v * 10) / 10;
     const curve = (arr) => {
       let d = "";
@@ -856,7 +868,8 @@ svg.ink .spotdim.on { opacity: 1; }
     const p2 = [s.x2 - size * Math.cos(a + 0.5), s.y2 - size * Math.sin(a + 0.5)];
     return { line: `M${s.x1} ${s.y1} L${bx} ${by}`, head: `${s.x2},${s.y2} ${p1[0]},${p1[1]} ${p2[0]},${p2[1]}` };
   }
-  function shapeSvg(s, cls = "shape") {
+  // opts.queued: drawn as a returned, not yet sent mark (look comes with the "ink comes back" work).
+  function shapeSvg(s, cls = "shape", opts = {}) {
     const hex = (INKS.find((i) => i.id === s.color) || INKS[0]).hex;
     let body = "", hit = "";
     if (s.type === "pen") {
@@ -865,7 +878,7 @@ svg.ink .spotdim.on { opacity: 1; }
       hit = `<path class="hit" d="${d}"/>`;
     } else if (s.type === "rect") {
       const a = `x="${s.x}" y="${s.y}" width="${s.w}" height="${s.h}" rx="12"`;
-      body = `<rect class="halo" ${a}/><rect class="area-fill" ${a}/><rect class="area" pathLength="1" stroke="url(#ca-ink)" ${a}/>`;
+      body = `<rect class="halo" ${a}/><rect class="area-fill" ${a}/><rect class="area-edge" pathLength="1" ${a}/><rect class="area" pathLength="1" stroke="url(#ca-ink)" ${a}/>`;
       hit = `<rect class="hit" ${a}/>`;
     } else if (s.type === "ellipse") {
       const a = `cx="${s.x + s.w / 2}" cy="${s.y + s.h / 2}" rx="${s.w / 2}" ry="${s.h / 2}"`;
@@ -880,14 +893,29 @@ svg.ink .spotdim.on { opacity: 1; }
       body = `<path class="halo" d="${d}"/><path class="line" stroke="${hex}" d="${d}"/>`;
       hit = `<path class="hit" d="${d}"/>`;
     }
-    return `<g class="${cls} ${s.type}${selected === s.id ? " selected" : ""}${freshId === s.id && cls === "shape" ? " fresh" : ""}" data-id="${s.id}">${body}${hit}</g>`;
+    return `<g class="${cls} ${s.type}${opts.queued ? " queued" : ""}${selected === s.id ? " selected" : ""}${freshId === s.id && cls === "shape" ? " fresh" : ""}" data-id="${s.id}">${body}${hit}</g>`;
   }
   function renderInk() {
     shapesG.innerHTML = shapes.map((s) => shapeSvg(s)).join("");
     renderDraft();
     renderSelection();
   }
-  function renderDraft() { draftG.innerHTML = draft ? shapeSvg(draft, "draft") : ""; updateSpot(); }
+  let draftRaf = 0;
+  function renderDraft() {
+    draftRaf = 0;
+    if (draft && draft.type === "pen") { // update the stroke in place instead of replacing it
+      const g = draftG.querySelector("g.draft");
+      const b = g && g.querySelector(".brush");
+      if (g && b && g.dataset.id === draft.id) {
+        g.querySelector(".halo").setAttribute("d", penPath(draft.points));
+        b.setAttribute("d", brushPath(draft.points));
+        return;
+      }
+    }
+    draftG.innerHTML = draft ? shapeSvg(draft, "draft") : "";
+    updateSpot();
+  }
+  function scheduleDraft() { if (!draftRaf) draftRaf = requestAnimationFrame(renderDraft); } // at most once per screen frame
   function renderShape(s) { // one committed shape, while it is being moved
     const g = shapesG.querySelector(`g.shape[data-id="${s.id}"]`);
     if (g) g.outerHTML = shapeSvg(s); else renderInk();
@@ -1457,7 +1485,8 @@ svg.ink .spotdim.on { opacity: 1; }
     const [x, y] = toDoc(e);
     if (draft.type === "pen") {
       const l = draft.points[draft.points.length - 1];
-      if (Math.hypot(x - l[0], y - l[1]) >= 2.5) draft.points.push([x, y]);
+      if (Math.hypot(x - l[0], y - l[1]) >= 2.5) { draft.points.push([x, y]); scheduleDraft(); }
+      return;
     } else if (draft.type === "arrow" || draft.type === "line") { [draft.x2, draft.y2] = e.shiftKey ? snap15(draft.x1, draft.y1, x, y) : [x, y]; }
     else {
       draft.x = Math.min(draft._ox, x); draft.y = Math.min(draft._oy, y);
@@ -1659,6 +1688,7 @@ svg.ink .spotdim.on { opacity: 1; }
     }
     return e ? docRect(e) : null;
   };
+  api.brushPath = brushPath; api.brushWidths = brushWidths; // for test/ink.mjs
   api.hide = (on) => { if (host) host.style.display = on ? "none" : ""; }; // clean before/after pictures: nothing of ours on the page
 
   // ---------------------------------------------------------------------------
