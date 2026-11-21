@@ -109,7 +109,8 @@ await client.close();
   const st = async () => (await (await fetch(`${s2.endpoint}/state?url=${encodeURIComponent(u2)}`, { headers: H2 })).json()).firstRun;
   assert.equal(await st(), true, "no settings file: the prompt is on");
   await fetch(`${s2.endpoint}/state`, { method: "PUT", headers: H2, body: JSON.stringify({ url: u2, shapes: [], notes: [{ id: "n", n: 1, x: 2, y: 2, color: "pink", text: "hi" }] }) });
-  await fetch(`${s2.endpoint}/send`, { method: "POST", headers: H2, body: JSON.stringify({ url: u2 }) });
+  const sendRes = await (await fetch(`${s2.endpoint}/send`, { method: "POST", headers: H2, body: JSON.stringify({ url: u2 }) })).json();
+  assert.ok(sendRes.ok, `send failed: ${JSON.stringify(sendRes)}`);
   assert.equal(await st(), true, "sent but not finished: the prompt stays");
   assert.ok(!fs.existsSync(path.join(home, ".cache", "inkback", "settings.json")), "nothing saved before the round finishes");
   // Send builds its batch in the background (slower on CI): wait until Claude could pick it up.
