@@ -27,7 +27,7 @@
   // Constants
   // ---------------------------------------------------------------------------
   const INKS = [
-    { id: "sage", hex: "#9cc3a9", dark: "#f5f5f4" }, // single ink: soft sage fading into gold along the stroke (see #ca-ink)
+    { id: "sage", hex: "#4F46E5", dark: "#ffffff" }, // single ink: solid indigo (Peter, 2026-11-21). The id stays "sage" so saved marks still load
   ];
   const TOOLS = ["pen", "arrow", "line", "rect", "ellipse", "note", "select"];
   const KEYS = { p: "pen", a: "rect", n: "note", s: "select" }; // arrow/line/box/circle removed from the bar (Peter, 2026-11-13)
@@ -477,22 +477,22 @@ svg.ink g.shape.leaving { opacity: 0; }
 .pop .acts .del { width: 30px; height: 30px; border-radius: var(--r-ctl); color: var(--faint); }
 @media (hover: hover) and (pointer: fine) { .pop .acts .del:hover { color: var(--stop); background: rgba(255,255,255,.04); } }
 /* Ink brush + spotlight area (Peter, 2026-11-14): subtle, artistic, one moment of glow */
-/* Dark edge under the ink (stroke painted first, fill on top) so a stroke reads on white, grey and dark pages. */
-svg.ink .brush { stroke: rgba(12,12,14,.85); stroke-width: 2.5; stroke-linejoin: round; paint-order: stroke; filter: drop-shadow(0 1px 1.5px rgba(0,0,0,.35)); }
-svg.ink g.draft .brush { filter: none; } /* no glow while drawing: cheaper per frame */
+/* Solid indigo, no outline: a soft white halo lets a mark read on white, mid-grey and near-black pages. */
+svg.ink .brush, svg.ink .area, svg.ink .qline { filter: drop-shadow(0 0 1.2px rgba(255,255,255,.9)) drop-shadow(0 0 1.2px rgba(255,255,255,.9)); } /* the halo twice: still soft, but enough to lift indigo off a mid-grey page */
+svg.ink .brush { fill: var(--ink); stroke: none; }
 svg.ink g.shape.fresh .brush { animation: inkSettle 520ms var(--ease-out) both; }
 @keyframes inkSettle {
-  from { filter: drop-shadow(0 0 7px rgba(156,195,169,.6)) drop-shadow(0 1px 1.5px rgba(0,0,0,.3)); }
-  to { filter: drop-shadow(0 0 0 rgba(156,195,169,0)) drop-shadow(0 1px 1.5px rgba(0,0,0,.35)); }
+  from { filter: drop-shadow(0 0 7px rgba(79,70,229,.45)) drop-shadow(0 0 1.2px rgba(255,255,255,.9)) drop-shadow(0 0 1.2px rgba(255,255,255,.9)); }
+  to { filter: drop-shadow(0 0 0 rgba(79,70,229,0)) drop-shadow(0 0 1.2px rgba(255,255,255,.9)) drop-shadow(0 0 1.2px rgba(255,255,255,.9)); }
 }
 svg.ink g.pen .halo, svg.ink g.rect .halo { stroke: transparent; }
 svg.ink g.pen .halo { stroke-width: 12; }
-svg.ink .area-edge { fill: none; stroke: rgba(12,12,14,.85); stroke-width: 3.6; stroke-dasharray: 1; stroke-dashoffset: 0; }
+svg.ink .area-edge { fill: none; stroke: rgba(255,255,255,.55); stroke-width: 4; stroke-dasharray: 1; stroke-dashoffset: 0; } /* soft white under-line, same job as the halo */
 svg.ink g.shape.fresh .area-edge { animation: areaDraw 560ms var(--ease-out) both; }
-svg.ink .area { fill: none; stroke-width: 1.6; stroke-dasharray: 1; stroke-dashoffset: 0; filter: drop-shadow(0 1px 2px rgba(0,0,0,.4)); }
+svg.ink .area { fill: none; stroke: var(--ink); stroke-width: 2; stroke-dasharray: 1; stroke-dashoffset: 0; }
 svg.ink g.shape.fresh .area { animation: areaDraw 560ms var(--ease-out) both; }
 @keyframes areaDraw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
-svg.ink .area-fill { fill: rgba(214,189,142,.045); stroke: none; }
+svg.ink .area-fill { fill: rgba(79,70,229,.045); stroke: none; }
 svg.ink .spotdim { fill: rgba(8,8,10,.42); fill-rule: evenodd; opacity: 0; transition: opacity 240ms var(--ease-out); pointer-events: none; }
 svg.ink .spotdim.on { opacity: 1; }
 :host(.capturing) svg.ink .spotdim { display: none; }
@@ -524,7 +524,7 @@ svg.ink .spotdim.on { opacity: 1; }
 .cmp img { display: block; width: 100%; height: auto; opacity: 0; transition: opacity 220ms var(--ease-out); user-select: none; -webkit-user-drag: none; }
 .cmp.ready img { opacity: 1; }
 .cmp img.a { position: absolute; inset: 0; clip-path: inset(0 0 0 var(--pos)); }
-.cmp .bar-h { position: absolute; top: 0; bottom: 0; left: var(--pos); width: 2px; margin-left: -1px; background: linear-gradient(#9cc3a9, #d6bd8e); box-shadow: 0 0 0 1px rgba(0,0,0,.25); pointer-events: none; opacity: 0; transition: opacity 200ms; }
+.cmp .bar-h { position: absolute; top: 0; bottom: 0; left: var(--pos); width: 2px; margin-left: -1px; background: #4F46E5; box-shadow: 0 0 0 1px rgba(0,0,0,.25); pointer-events: none; opacity: 0; transition: opacity 200ms; }
 .cmp.ready .bar-h { opacity: 1; }
 .cmp .knob { position: absolute; top: 50%; left: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; background: var(--surface); border: 1px solid var(--hair-strong); box-shadow: 0 4px 12px -4px rgba(0,0,0,.6); }
 .cmp .knob::before, .cmp .knob::after { content: ""; position: absolute; top: 50%; width: 5px; height: 5px; margin-top: -3px; border: solid var(--label); border-width: 0 0 1.5px 1.5px; }
@@ -575,8 +575,7 @@ svg.ink .spotdim.on { opacity: 1; }
 .review.marks-off .rv-ink { display: none; }
 .rv-qnote { margin-right: auto; align-self: center; font-size: 12.5px; color: var(--label); }
 .rv-qnote[hidden] { display: none; }
-svg.ink .qedge { fill: none; stroke: rgba(12,12,14,.85); stroke-width: 3.4; stroke-dasharray: 6 4; stroke-linejoin: round; }
-svg.ink .qline { fill: none; stroke-width: 1.6; stroke-dasharray: 6 4; stroke-linejoin: round; }
+svg.ink .qline { fill: none; stroke: var(--ink); stroke-width: 1.8; stroke-dasharray: 6 4; stroke-linejoin: round; }
 svg.ink g.queued .area, svg.ink g.queued .area-edge { stroke-dasharray: 7 5; animation: none; }
 svg.ink g.queued .area-fill { fill: none; }
 .pin .tag .qd { display: block; font-size: 11.5px; color: var(--warn); margin-bottom: 2px; }
@@ -611,8 +610,8 @@ svg.ink g.queued .area-fill { fill: none; }
     docLayer = el("div", "doc");
     svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("class", "ink");
-    // Ink brush gradient (sage → gold, per mark's bounding box) and the spotlight dim layer.
-    svg.innerHTML = '<defs><linearGradient id="ca-ink" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9cc3a9"/><stop offset="1" stop-color="#d6bd8e"/></linearGradient></defs>' +
+    // The spotlight dim layer, the committed marks and the one being drawn.
+    svg.innerHTML =
       '<path class="spotdim"/><g class="shapes"></g><g class="draftg"></g>';
     spotEl = svg.querySelector(".spotdim");
     shapesG = svg.querySelector("g.shapes");
@@ -833,24 +832,40 @@ svg.ink g.queued .area-fill { fill: none; }
     d += ` L${l[0]} ${l[1]}`;
     return d;
   }
-  // Ink brush: a filled outline around the stroke. Fast segments draw thinner, slow ones fuller,
-  // and both ends taper, so a quick circle reads like a brush pen rather than a marker.
-  // Widths stay between about 3.9 and 6 px (slight, never a hairline); the ends taper but never below 1.6 px.
+  // Ink brush (Peter chose "1 · Brush", 2026-11-21): a filled indigo ribbon, full in the middle,
+  // sharp tapered tips. The points are smoothed first (near-duplicates dropped, two soft averaging
+  // passes) so the outline has no jaggies; the outline itself is drawn with quadratic midpoints.
+  // The taper is measured along the stroke (not per point), so it looks the same at any mouse speed.
+  // Speed changes the width only a little (0.88-1.1 of the base, about 8-10 px).
   function brushGeom(raw) {
     if (raw.length < 2) return null;
-    const pts = raw.map((p, i) => { // light smoothing so the outline doesn't jitter
-      const a = raw[Math.max(0, i - 1)], b = raw[Math.min(raw.length - 1, i + 1)];
-      return [(a[0] + 2 * p[0] + b[0]) / 4, (a[1] + 2 * p[1] + b[1]) / 4];
-    });
-    const n = pts.length, BASE = 5.2;
+    let pts = [raw[0]];
+    for (let i = 1; i < raw.length; i++) { // drop points closer than 1.5 px: they only add wobble
+      const q = pts[pts.length - 1];
+      if (Math.hypot(raw[i][0] - q[0], raw[i][1] - q[1]) >= 1.5 || i === raw.length - 1) pts.push(raw[i]);
+    }
+    if (pts.length < 2) pts = [raw[0], raw[raw.length - 1]];
+    for (let pass = 0; pass < 2; pass++) { // ends stay where they were drawn
+      pts = pts.map((p, i) => {
+        if (i === 0 || i === pts.length - 1) return p;
+        const a = pts[i - 1], b = pts[i + 1];
+        return [(a[0] + 2 * p[0] + b[0]) / 4, (a[1] + 2 * p[1] + b[1]) / 4];
+      });
+    }
+    const n = pts.length, BASE = 9;
+    const S = [0]; // distance along the stroke
+    for (let i = 1; i < n; i++) S.push(S[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+    const total = S[n - 1] || 1;
+    const tIn = Math.min(18, total * 0.3), tOut = Math.min(28, total * 0.4);
+    const ease = (t) => 1 - (1 - t) * (1 - t); // fills out quickly, keeps a pointed tip
     let w = BASE;
     const L = [], R = [], W = [];
     for (let i = 0; i < n; i++) {
       const a = pts[Math.max(0, i - 1)], b = pts[Math.min(n - 1, i + 1)];
       const speed = Math.hypot(pts[i][0] - a[0], pts[i][1] - a[1]);
-      w += (BASE * clamp(1.3 - speed / 18, 0.75, 1.15) - w) * 0.35;
-      const taper = Math.min(1, 0.35 + i / 5, 0.25 + (n - 1 - i) / 7);
-      const half = Math.max(w * taper / 2, 0.8);
+      w += (BASE * clamp(1.2 - speed / 30, 0.88, 1.1) - w) * 0.25;
+      const taper = ease(clamp(Math.min(S[i] / tIn, (total - S[i]) / tOut), 0, 1));
+      const half = Math.max(w * taper / 2, 0.6);
       W.push(half * 2);
       let dx = b[0] - a[0], dy = b[1] - a[1];
       const len = Math.hypot(dx, dy) || 1; dx /= len; dy /= len;
@@ -909,14 +924,14 @@ svg.ink g.queued .area-fill { fill: none; }
     if (s.type === "pen") {
       const d = penPath(s.points);
       const bd = brushPath(s.points);
-      body = queued // hollow: the brush outline only, dashed, a dark dashed edge under it
-        ? `<path class="halo" d="${d}"/><path class="qedge" d="${bd}"/><path class="qline" stroke="url(#ca-ink)" d="${bd}"/>`
-        : `<path class="halo" d="${d}"/><path class="brush" fill="url(#ca-ink)" d="${bd}"/>`;
+      body = queued // hollow: the brush outline only, dashed, with the white halo
+        ? `<path class="halo" d="${d}"/><path class="qline" d="${bd}"/>`
+        : `<path class="halo" d="${d}"/><path class="brush" d="${bd}"/>`;
       hit = `<path class="hit" d="${d}"/>`;
     } else if (s.type === "rect") {
       const a = `x="${s.x}" y="${s.y}" width="${s.w}" height="${s.h}" rx="12"`;
       const pl = queued ? "" : ' pathLength="1"'; // dashes in page pixels when queued
-      body = `<rect class="halo" ${a}/><rect class="area-fill" ${a}/><rect class="area-edge"${pl} ${a}/><rect class="area"${pl} stroke="url(#ca-ink)" ${a}/>`;
+      body = `<rect class="halo" ${a}/><rect class="area-fill" ${a}/><rect class="area-edge"${pl} ${a}/><rect class="area"${pl} ${a}/>`;
       hit = `<rect class="hit" ${a}/>`;
     } else if (s.type === "ellipse") {
       const a = `cx="${s.x + s.w / 2}" cy="${s.y + s.h / 2}" rx="${s.w / 2}" ry="${s.h / 2}"`;
@@ -1763,11 +1778,9 @@ svg.ink g.queued .area-fill { fill: none; }
     if (alsoN) parts.push(`${alsoN} also changed`);
     return parts.join(" · ") || "Result";
   }
-  // The user's own marks on the result screen. Own gradient copy per drawing (not the page layer's #ca-ink),
-  // in user space so a perfectly straight line still gets a colour.
+  // The user's own marks on the result screen, in the same solid indigo as the page.
+  const INK_HEX = INKS[0].hex;
   const MARK_WORD = { pen: "a drawn stroke", rect: "a box", ellipse: "a circle", arrow: "an arrow", line: "a line" };
-  let gradSeq = 0;
-  const gradDef = (id, x, y, w, h) => `<defs><linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${x}" y1="${y}" x2="${x + w}" y2="${y + h}"><stop offset="0" stop-color="#9cc3a9"/><stop offset="1" stop-color="#d6bd8e"/></linearGradient></defs>`;
   function markEls(m, attrs) { // one mark as plain outline elements (no brush), stroke from attrs
     if (m.type === "pen") return `<polyline ${attrs} points="${m.points.map((p) => p[0] + "," + p[1]).join(" ")}"/>`;
     if (m.type === "rect") return `<rect ${attrs} x="${m.x}" y="${m.y}" width="${m.w}" height="${m.h}" rx="${Math.min(12, m.w / 2, m.h / 2)}"/>`;
@@ -1779,10 +1792,9 @@ svg.ink g.queued .area-fill { fill: none; }
   function thumbSvg(m) {
     const b = bbox(m), p = Math.max(b.w, b.h, 8) * 0.1;
     const vb = [b.x - p, b.y - p, Math.max(b.w, 1) + 2 * p, Math.max(b.h, 1) + 2 * p];
-    const id = `rvg${++gradSeq}`;
-    return `<svg viewBox="${vb.join(" ")}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">${gradDef(id, ...vb)}${markEls(m, `fill="none" stroke="url(#${id})" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"`)}</svg>`;
+    return `<svg viewBox="${vb.join(" ")}" preserveAspectRatio="xMidYMid meet" aria-hidden="true" style="filter:drop-shadow(0 0 1px rgba(255,255,255,.9))">${markEls(m, `fill="none" stroke="${INK_HEX}" stroke-width="1.75" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"`)}</svg>`;
   }
-  const PIN_THUMB = '<svg viewBox="0 0 40 28" aria-hidden="true"><circle cx="20" cy="11" r="5.5" fill="none" stroke="#9cc3a9" stroke-width="1.5"/><path d="M20 16.5V23" stroke="#d6bd8e" stroke-width="1.5" stroke-linecap="round"/></svg>';
+  const PIN_THUMB = '<svg viewBox="0 0 40 28" aria-hidden="true"><circle cx="20" cy="11" r="5.5" fill="none" stroke="#4F46E5" stroke-width="1.5"/><path d="M20 16.5V23" stroke="#4F46E5" stroke-width="1.5" stroke-linecap="round"/></svg>';
   function thumbHtml(ink, n) { // n: the note number, or null for a card of marks without a note
     const m = ink.marks.find((k) => (n == null ? true : k.n === n));
     if (m) return `<span class="rv-thumb" role="img" aria-label="${n == null ? "Your mark" : `Your mark for note ${n}`}: ${MARK_WORD[m.type] || "a mark"}">${thumbSvg(m)}</span>`;
@@ -1792,12 +1804,12 @@ svg.ink g.queued .area-fill { fill: none; }
   function inkLayer(it) {
     const c = it.clip, ink = it.ink;
     if (!ink || !Array.isArray(ink.marks) || !c || !(ink.marks.length || ink.pins.length)) return "";
-    const id = `rvg${++gradSeq}`, pct = (v, of) => ((v / of) * 100).toFixed(2) + "%";
+    const pct = (v, of) => ((v / of) * 100).toFixed(2) + "%";
     const base = 'fill="none" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"';
-    const body = ink.marks.map((m) => markEls(m, `${base} stroke="rgba(12,12,14,.8)" stroke-width="4"`) + markEls(m, `${base} stroke="url(#${id})" stroke-width="2.25"`)).join("");
+    const body = ink.marks.map((m) => markEls(m, `${base} stroke="rgba(255,255,255,.6)" stroke-width="4.5"`) + markEls(m, `${base} stroke="${INK_HEX}" stroke-width="2.5"`)).join("");
     const pins = ink.pins.filter((p) => p.x >= c.x && p.x <= c.x + c.width && p.y >= c.y && p.y <= c.y + c.height)
       .map((p) => `<span class="rv-pn" style="left:${pct(p.x - c.x, c.width)};top:${pct(p.y - c.y, c.height)}">${p.n}</span>`).join("");
-    return `<div class="rv-ink" aria-hidden="true"><svg viewBox="${c.x} ${c.y} ${c.width} ${c.height}" preserveAspectRatio="none">${gradDef(id, c.x, c.y, c.width, c.height)}${body}</svg>${pins}</div>`;
+    return `<div class="rv-ink" aria-hidden="true"><svg viewBox="${c.x} ${c.y} ${c.width} ${c.height}" preserveAspectRatio="none">${body}</svg>${pins}</div>`;
   }
   const MARKS_KEY = "inkback:marks"; // "My marks" on/off, kept next to the toolbar position
   const marksOn = () => { try { return localStorage.getItem(MARKS_KEY) !== "off"; } catch { return true; } };

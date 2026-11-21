@@ -25,7 +25,7 @@ Then, with your app running, run `/inkback:review http://localhost:3000` in Clau
 Comment and sketch right on the page, press **Send to Claude**, and Claude edits the code. When it's done, every note comes back marked *Changed*, *No visible change* or *Couldn't check*, with a before/after slider, and anything else on the page that changed shows up under *Also changed*.
 
 - **Comment anywhere.** Double-click to leave a note. Paste or drop up to 4 reference images into it.
-- **Ink brush pen.** Strokes thin out when you draw fast and taper at both ends, in a sage-to-gold gradient. Every stroke opens a linked comment.
+- **Ink brush pen.** Strokes thin out when you draw fast and taper at both ends, in solid indigo with a soft white halo, so they read on light and dark pages. Every stroke opens a linked comment.
 - **Spotlight areas** (key `A`). Drag a box and the rest of the page dims while you write.
 - **Send to Claude.** Your notes, the element under each one (with its React component and source file when known) and screenshots land in your Claude Code session.
 - **Before / after.** When Claude finishes, each spot comes back with a slider. The "after" picture follows the element even if content above it moved.

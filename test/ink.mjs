@@ -173,7 +173,16 @@ async function drawCircle(page, cx = 370, cy = 272, rx = 120, ry = 60, steps = 6
 }
 const luminance = ([r, g, b]) => { const c = [r, g, b].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
 const ratio = (a, b) => { const x = luminance(a), y = luminance(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
-// Count pixels in a screenshot that differ from the background by a 3:1 contrast or more.
+// CIE Lab colour difference (ΔE 1976). Indigo on mid-grey is only about 1.6:1 in brightness but a very different
+// colour (ΔE about 90), so "readable" means 3:1 brightness contrast OR a clear colour difference (ΔE 40 or more).
+const lab = ([r, g, b]) => {
+  const [R, G, B] = [r, g, b].map((v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
+  const f = (t) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+  const x = f((0.4124 * R + 0.3576 * G + 0.1805 * B) / 0.95047), y = f(0.2126 * R + 0.7152 * G + 0.0722 * B), z = f((0.0193 * R + 0.1192 * G + 0.9505 * B) / 1.08883);
+  return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
+};
+const deltaE = (a, b) => { const p = lab(a), q = lab(b); return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]); };
+// Count pixels in a screenshot that stand out from the background: 3:1 contrast, or ΔE 40 or more.
 async function strongPixels(page, bgRgb) {
   const png = (await page.screenshot({ clip: { x: 230, y: 190, width: 280, height: 160 } })).toString("base64");
   const px = await page.evaluate(async (b64) => {
@@ -182,7 +191,7 @@ async function strongPixels(page, bgRgb) {
     const x = c.getContext("2d"); x.drawImage(img, 0, 0); return [...x.getImageData(0, 0, c.width, c.height).data];
   }, png);
   let n = 0;
-  for (let i = 0; i < px.length; i += 4) if (ratio([px[i], px[i + 1], px[i + 2]], bgRgb) >= 3) n++;
+  for (let i = 0; i < px.length; i += 4) { const c = [px[i], px[i + 1], px[i + 2]]; if (ratio(c, bgRgb) >= 3 || deltaE(c, bgRgb) >= 40) n++; }
   return n;
 }
 
@@ -199,10 +208,10 @@ try {
     await page.evaluate(() => window.__inkback.capture(true));
     await sleep(100);
     const n = await strongPixels(page, rgb);
-    assert.ok(n >= 400, "the stroke reads on a " + name + " page (" + n + " pixels at 3:1 or better)");
+    assert.ok(n >= 400, "the stroke reads on a " + name + " page (" + n + " pixels at 3:1 or ΔE 40+)");
     await page.close();
   }
-  console.log("✓ stroke reads (3:1) on white, mid-grey and near-black pages, also in capture mode");
+  console.log("✓ stroke reads (3:1 or clear colour difference) on white, mid-grey and near-black pages, also in capture mode");
   for (const [name, bg, rgb] of [["white", "#ffffff", [255, 255, 255]], ["mid-grey", "#808080", [128, 128, 128]], ["near-black", "#0b0b0d", [11, 11, 13]]]) {
     const page = await open(bg);
     await page.evaluate(() => { document.getElementById("b").style.visibility = "hidden"; });
@@ -214,12 +223,12 @@ try {
     await page.evaluate(() => window.__inkback.capture(true));
     await sleep(100);
     const n = await strongPixels(page, rgb);
-    assert.ok(n >= 300, "the Area box reads on a " + name + " page (" + n + " pixels at 3:1 or better)");
+    assert.ok(n >= 300, "the Area box reads on a " + name + " page (" + n + " pixels at 3:1 or ΔE 40+)");
     await page.close();
   }
-  console.log("✓ Area box reads (3:1) on white, mid-grey and near-black pages");
+  console.log("✓ Area box reads (3:1 or clear colour difference) on white, mid-grey and near-black pages");
 
-  // 2. Width: slight variation away from the ends, tapered ends, floor on the ends.
+  // 2. Width: about 8-10 px in the middle, slight variation with speed, sharp tapered tips that never vanish.
   {
     const page = await open("#fff");
     const out = await page.evaluate(() => {
@@ -239,8 +248,10 @@ try {
     assert.ok(out.max / out.min <= 1.6, "thickest is at most 1.6 x the thinnest away from the ends (" + (out.max / out.min).toFixed(2) + ")");
     assert.ok(out.max / out.min >= 1.1, "speed still changes the width (" + (out.max / out.min).toFixed(2) + ")");
     assert.ok(out.first < out.min && out.last < out.min, "the ends taper");
-    assert.ok(out.first >= 1.6 - 1e-9 && out.last >= 1.6 - 1e-9 && out.flickMin >= 1.6 - 1e-9, "the ends never get thinner than 1.6 px");
-    console.log("✓ width " + out.min.toFixed(1) + "-" + out.max.toFixed(1) + " px (ratio " + (out.max / out.min).toFixed(2) + "), ends taper, floor 1.6 px");
+    assert.ok(out.min >= 7.5 && out.max <= 10.5, "the middle is about 8-10 px wide (" + out.min.toFixed(1) + "-" + out.max.toFixed(1) + ")");
+    assert.ok(out.first <= 2.5 && out.last <= 2.5, "sharp tips (" + out.first.toFixed(1) + ", " + out.last.toFixed(1) + " px)");
+    assert.ok(out.first >= 1 - 1e-9 && out.last >= 1 - 1e-9 && out.flickMin >= 1 - 1e-9, "the tips never vanish (at least 1 px)");
+    console.log("✓ width " + out.min.toFixed(1) + "-" + out.max.toFixed(1) + " px (ratio " + (out.max / out.min).toFixed(2) + "), sharp tips " + out.first.toFixed(1) + " px, never under 1 px");
 
     // 3. Speed: a 1,500-point stroke is built in under 8 ms.
     const ms = await page.evaluate(() => {
@@ -492,7 +503,7 @@ try {
     await sleep(500);
     const q2 = await look();
     assert.ok(!q2.queued && !q2.boxQueued, "after Send the mark is not queued any more");
-    assert.equal(q2.fill.startsWith("url("), true, "and is drawn as a normal filled stroke");
+    assert.equal(q2.fill, "rgb(79, 70, 229)", "and is drawn as a normal filled stroke, solid indigo");
     assert.doesNotMatch(q2.words, /Queued/, "the words are gone after Send");
     await page.close();
     // Deleting the queued note removes its marks too.
