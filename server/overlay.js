@@ -488,12 +488,12 @@ svg.ink .spotdim { fill: rgba(8,8,10,.42); fill-rule: evenodd; opacity: 0; trans
 svg.ink .spotdim.on { opacity: 1; }
 :host(.capturing) svg.ink .spotdim { display: none; }
 /* Before / after review (Peter, 2026-11-14) */
-.review { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(8,8,10,.55);
+.review { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px; background: rgba(8,8,10,.55);
   pointer-events: auto; font-family: var(--font); color: var(--fg); animation: rvIn 200ms var(--ease-out) both; }
 .review.out { animation: rvOut 160ms var(--ease-out) forwards; }
 @keyframes rvIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes rvOut { to { opacity: 0; } }
-.rv-sheet { width: min(780px, 100%); max-height: calc(100vh - 48px); display: flex; flex-direction: column; background: var(--surface);
+.rv-sheet { width: 100%; max-height: calc(100vh - 32px); display: flex; flex-direction: column; background: var(--surface);
   border: 1px solid var(--hair); border-radius: 16px; box-shadow: 0 24px 64px -24px rgba(0,0,0,.8); overflow: hidden;
   animation: rvSheet 220ms var(--ease-out) both; }
 @keyframes rvSheet { from { opacity: 0; transform: scale(.97) translateY(6px); } to { opacity: 1; transform: none; } }
@@ -519,6 +519,10 @@ svg.ink .spotdim.on { opacity: 1; }
 .cmp .tag-b, .cmp .tag-a { position: absolute; top: 10px; padding: 3px 8px; border-radius: 6px; font-size: 11.5px; color: var(--fg); background: rgba(28,28,31,.82); border: 1px solid var(--hair); pointer-events: none; }
 .cmp .tag-b { left: 10px; } .cmp .tag-a { right: 10px; }
 .cmp input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: ew-resize; }
+.rv-hint { margin-top: 6px; font-size: 12px; color: var(--faint); }
+.rv-zoom { position: absolute; inset: 0; z-index: 2; overflow: auto; background: rgba(8,8,10,.92); padding: 56px 16px 16px; }
+.rv-zoom .cmp { margin: 0 auto; border-radius: 0; max-width: none; }
+.rv-zoom-x { position: fixed; top: 12px; right: 16px; z-index: 3; height: 34px; padding: 0 14px; border-radius: var(--r-ctl); font: 500 13px var(--font); cursor: pointer; background: var(--fg); color: #1c1917; border: 1px solid var(--fg); }
 .cmp.missing::after { content: "No after picture for this spot"; position: absolute; inset: 0; display: grid; place-items: center; font-size: 12.5px; color: var(--faint); }
 .rv-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 20px; border-top: 1px solid var(--hair); }
 .rv-foot button { height: 34px; padding: 0 14px; border-radius: var(--r-ctl); font: 500 13px var(--font); cursor: pointer; transition: background-color 150ms, transform 120ms var(--ease-out); }
@@ -1645,9 +1649,32 @@ svg.ink .spotdim.on { opacity: 1; }
   }
   function hideReview() {
     if (!reviewEl) return;
+    closeZoom();
     const el0 = reviewEl; reviewEl = null;
     el0.classList.add("out");
     setTimeout(() => { el0.remove(); for (const u of reviewUrls.splice(0)) URL.revokeObjectURL(u); }, 180);
+  }
+  function closeZoom() {
+    if (!reviewEl) return;
+    const z = reviewEl.querySelector(".rv-zoom"), x = reviewEl.querySelector(".rv-zoom-x");
+    if (z) z.remove(); if (x) x.remove();
+    document.removeEventListener("keydown", zoomKey, true);
+  }
+  function zoomKey(e) { if (e.key === "Escape") { e.stopImmediatePropagation(); e.preventDefault(); closeZoom(); } }
+  // The same slider at the picture's real size (1 image pixel = 1 screen pixel); scrolls if bigger than the window.
+  function openZoom(card, pos) {
+    if (!reviewEl || reviewEl.querySelector(".rv-zoom")) return;
+    const ib = card.querySelector("img.b"), ia = card.querySelector("img.a");
+    const z = el("div", "rv-zoom");
+    z.innerHTML = `<div class="cmp ready" style="--pos:${pos || "50%"};width:${ib.naturalWidth}px"><img class="b" alt="Before"><img class="a" alt="After"><span class="bar-h"><span class="knob"></span></span>
+      <span class="tag-b">Before</span><span class="tag-a">After</span><input type="range" min="0" max="100" value="${parseFloat(pos) || 50}" aria-label="Compare before and after"></div>`;
+    const zc = z.querySelector(".cmp"), zr = z.querySelector("input");
+    z.querySelector("img.b").src = ib.src; z.querySelector("img.a").src = ia.src;
+    zr.addEventListener("input", () => zc.style.setProperty("--pos", zr.value + "%"));
+    const x = el("button", "rv-zoom-x"); x.type = "button"; x.textContent = "Close (Esc)";
+    x.addEventListener("click", closeZoom);
+    reviewEl.appendChild(z); reviewEl.appendChild(x);
+    document.addEventListener("keydown", zoomKey, true);
   }
   async function showReview() {
     if (RENDER_ONLY || reviewEl) return;
@@ -1665,7 +1692,7 @@ svg.ink .spotdim.on { opacity: 1; }
       return `<section class="rv-card" data-k="${it.k}">${label}
         <div class="cmp" style="--pos:50%"><img class="b" alt="Before"><img class="a" alt="After"><span class="bar-h"><span class="knob"></span></span>
           <span class="tag-b">Before</span><span class="tag-a">After</span>
-          <input type="range" min="0" max="100" value="50" aria-label="Compare before and after"></div></section>`;
+          <input type="range" min="0" max="100" value="50" aria-label="Compare before and after"></div><div class="rv-hint">Click the picture to see it at real size</div></section>`;
     }).join("");
     reviewEl.innerHTML = `<div class="rv-sheet">
       <header class="rv-head"><div class="rv-title">Done</div>${rv.summary ? `<div class="rv-sum">${esc(rv.summary)}</div>` : ""}</header>
@@ -1677,6 +1704,14 @@ svg.ink .spotdim.on { opacity: 1; }
     for (const card of reviewEl.querySelectorAll(".rv-card")) {
       const k = card.dataset.k, cmp = card.querySelector(".cmp"), range = card.querySelector("input");
       range.addEventListener("input", () => cmp.style.setProperty("--pos", range.value + "%"));
+      // A click (not a drag) opens the picture at real size; a drag moves the slider.
+      let down = null;
+      range.addEventListener("pointerdown", (e) => { down = { x: e.clientX, y: e.clientY, v: range.value }; });
+      range.addEventListener("click", (e) => {
+        if (!down || Math.abs(e.clientX - down.x) > 4 || Math.abs(e.clientY - down.y) > 4 || !cmp.classList.contains("ready")) return;
+        range.value = down.v; cmp.style.setProperty("--pos", down.v + "%"); // a plain click must not move the slider
+        openZoom(card, cmp.style.getPropertyValue("--pos"));
+      });
       Promise.all([loadImg(k, "before"), loadImg(k, "after")]).then(([b, a]) => {
         const ib = card.querySelector("img.b"), ia = card.querySelector("img.a");
         ib.src = b; ia.src = a;

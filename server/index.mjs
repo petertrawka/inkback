@@ -194,7 +194,7 @@ async function pageFor(url, fresh = false) {
 async function shootRect(page, clip, file) {
   const vp = await page.evaluate(() => ({ x: scrollX, y: scrollY, w: innerWidth, h: innerHeight }));
   const w = Math.min(clip.width, vp.w), h = Math.min(clip.height, vp.h);
-  const x = Math.round(clip.x + (clip.width - w) / 2), y = Math.round(clip.y + (clip.height - h) / 2);
+  const x = clip.width > vp.w ? Math.round(clip.x) : Math.round(clip.x + (clip.width - w) / 2), y = Math.round(clip.y + (clip.height - h) / 2);
   const inView = x >= vp.x && y >= vp.y && x + w <= vp.x + vp.w && y + h <= vp.y + vp.h;
   const to = ([l, t]) => { scrollTo({ left: l, top: t, behavior: "instant" }); return [scrollX, scrollY]; };
   const [sx, sy] = inView ? [vp.x, vp.y] : await page.evaluate(to, [x, y]);
@@ -243,7 +243,8 @@ function bboxOf(item) {
 
 const clampN = (v, a, b) => Math.max(a, Math.min(b, v));
 function pad(b, p) { return { x: b.x - p, y: b.y - p, w: b.w + 2 * p, h: b.h + 2 * p }; }
-function overlaps(a, b) { return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h; }
+// Each picture is a full-width strip, so two notes belong together when their strips overlap vertically (sideways does not matter).
+function overlaps(a, b) { return a.y < b.y + b.h && b.y < a.y + a.h; }
 function union(a, b) {
   const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
   return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
@@ -272,11 +273,11 @@ function clusterItems(pageState, doc) {
   // Minimum useful size, then clamp to the document.
   return clusters.map((c) => {
     let { x, y, w, h } = c.box;
-    const minW = 720, minH = 440;
-    if (w < minW) { x -= (minW - w) / 2; w = minW; }
+    // Always the full page width (x = 0), so nothing at the sides is cut off; only the height is local to the note.
+    const minH = 440;
     if (h < minH) { y -= (minH - h) / 2; h = minH; }
-    w = Math.round(Math.min(w, doc.w)); h = Math.round(Math.min(h, doc.h));
-    x = Math.round(clampN(x, 0, doc.w - w)); y = Math.round(clampN(y, 0, doc.h - h));
+    x = 0; w = Math.round(doc.w); h = Math.round(Math.min(h, doc.h));
+    y = Math.round(clampN(y, 0, doc.h - h));
     return { ...c, clip: { x, y, width: Math.max(1, w), height: Math.max(1, h) } };
   });
 }
