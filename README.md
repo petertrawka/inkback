@@ -32,6 +32,7 @@ Comment and sketch right on the page, press **Send to Claude**, and Claude edits
 - **Also changed.** After each round Inkback compares the whole page. Areas that changed away from your notes are boxed and listed, each with its own slider.
 - **Two endings.** *Looks good, close* ends the round and closes the window. *More feedback* reloads the page for another round.
 - **Not right.** Every result (asked-for or "Also changed") has a *Not right* button. Press it on as many as you like: the next round starts with a ready-made note on each spot, "Put this back the way it was", with the before picture attached. Edit the text or add more notes, then Send as usual.
+- **Ink back.** "Ink back" means your own pen marks and note numbers come back with Claude's answer: a small copy on each result, and on the Before picture where you drew it. Press *Not right* and the drawing returns to the page, queued for the next round. Limit: a returned mark follows its element, but can sit slightly off after the page reflows.
 - **Local only.** It runs on your machine in its own Chrome window. No cloud, and no AI calls beyond your Claude session.
 
 ## How to use it

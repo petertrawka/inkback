@@ -13,7 +13,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, "..");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-for (const f of ["server/index.mjs", "server/overlay.js", "server/ink.mjs", "scripts/ticker.mjs"]) {
+for (const f of ["server/index.mjs", "server/overlay.js", "server/ink.mjs", "server/settings.mjs", "scripts/ticker.mjs"]) {
   const r = spawnSync(process.execPath, ["--check", path.join(root, f)], { encoding: "utf8" });
   assert.equal(r.status, 0, `${f} does not parse:\n${r.stderr}`);
 }
@@ -94,6 +94,32 @@ await reader.cancel().catch(() => {});
 console.log("✓ hook reaches the bridge and the page");
 
 await client.close();
+
+// First-use prompt: a second server with its own throwaway home. A finished round writes one line to settings.json.
+{
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "inkback-home-"));
+  const t2 = new StdioClientTransport({ command: process.execPath, args: [path.join(root, "server/index.mjs")], env: { ...process.env, HOME: home, INKBACK_FIRST_RUN: "" }, stderr: "pipe" });
+  const c2 = new Client({ name: "smoke2", version: "0.0.0" }, { capabilities: {} });
+  await c2.connect(t2);
+  const sf = path.join(home, ".cache", "inkback", "sessions", `${process.pid}.json`);
+  for (let i = 0; i < 50 && !fs.existsSync(sf); i++) await sleep(100);
+  const s2 = JSON.parse(fs.readFileSync(sf, "utf8"));
+  const H2 = { "Content-Type": "application/json", "X-Inkback-Token": s2.token };
+  const u2 = "http://localhost:2/";
+  const st = async () => (await (await fetch(`${s2.endpoint}/state?url=${encodeURIComponent(u2)}`, { headers: H2 })).json()).firstRun;
+  assert.equal(await st(), true, "no settings file: the prompt is on");
+  await fetch(`${s2.endpoint}/state`, { method: "PUT", headers: H2, body: JSON.stringify({ url: u2, shapes: [], notes: [{ id: "n", n: 1, x: 2, y: 2, color: "pink", text: "hi" }] }) });
+  await fetch(`${s2.endpoint}/send`, { method: "POST", headers: H2, body: JSON.stringify({ url: u2 }) });
+  assert.equal(await st(), true, "sent but not finished: the prompt stays");
+  assert.ok(!fs.existsSync(path.join(home, ".cache", "inkback", "settings.json")), "nothing saved before the round finishes");
+  await c2.callTool({ name: "inkback_done", arguments: { summary: "ok" } });
+  const saved2 = fs.readFileSync(path.join(home, ".cache", "inkback", "settings.json"), "utf8");
+  assert.equal(JSON.parse(saved2).firstRoundDone, true, "finished round saved as one line");
+  assert.equal(await st(), false, "the prompt is gone once the round has finished");
+  await c2.close();
+  fs.rmSync(home, { recursive: true, force: true });
+  console.log("✓ first-use setting: on without a file, stays while a round is open, saved when Claude finishes");
+}
 for (let i = 0; i < 50 && fs.existsSync(sessionFile); i++) await sleep(100);
 assert.ok(!fs.existsSync(sessionFile), "session file removed on shutdown");
 assert.doesNotMatch(stderr, /error/i, `server stderr clean:\n${stderr}`);

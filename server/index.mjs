@@ -24,6 +24,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { compareFiles, compareRegions } from "./compare.mjs";
 import { bypassCache, keepFresh, matchViewport, viewportOf } from "./fresh.mjs";
+import { firstRunOn, markFirstRoundDone } from "./settings.mjs";
 import { inkForCluster, viewInk, returnMarks, followUp, followLines } from "./ink.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -83,7 +84,7 @@ let mainPage = null;
 let sessionProfile = null;
 
 function bootstrapSource(renderOnly = false) {
-  return `window.__INKBACK__ = ${JSON.stringify({ endpoint, token: TOKEN, renderOnly, version: VERSION })};\n${OVERLAY_SRC}`;
+  return `window.__INKBACK__ = ${JSON.stringify({ endpoint, token: TOKEN, renderOnly, version: VERSION, firstRun: firstRunOn(CACHE_DIR) })};\n${OVERLAY_SRC}`;
 }
 
 let launching = null;
@@ -729,6 +730,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
       if (batch) {
         for (const [, p] of state.pages) for (const note of p.notes) if (note.batch === batch.id && (note.status === "pending" || note.status === "working")) note.status = "done";
         batch.done = true;
+        markFirstRoundDone(CACHE_DIR); // a real round finished: the first-use prompt is gone for good (any project, any address)
         await removeBatchFiles(batch);
         takePending(batch);
         if (batch.compare && batch.compare.length && context) {
@@ -738,7 +740,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
           if (items.length) state.review = { batch: batch.id, summary, items, also: batch.also || { items: [], unchecked: true } };
         }
       }
-      broadcast({ type: "done", summary, batch: batch ? batch.id : null, review: !!state.review });
+      broadcast({ type: "done", summary, batch: batch ? batch.id : null, review: !!state.review, firstRun: firstRunOn(CACHE_DIR) });
       return text("ok");
     }
     case "inkback_reply": {
@@ -873,7 +875,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/state") {
       const page = url.searchParams.get("url") || "";
       const p = state.pages.get(page) || { shapes: [], notes: [] };
-      return json(res, 200, { ok: true, shapes: p.shapes, notes: p.notes, totals: totals(), mode: state.mode, review: !!state.review });
+      return json(res, 200, { ok: true, shapes: p.shapes, notes: p.notes, totals: totals(), mode: state.mode, review: !!state.review, firstRun: firstRunOn(CACHE_DIR) });
     }
     if (req.method === "PUT" && url.pathname === "/state") {
       const body = JSON.parse((await readBody(req)) || "{}");

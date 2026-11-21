@@ -71,6 +71,9 @@
   let totals = { notes: 0, shapes: 0, pages: 0, unsent: 0, open: 0, batches: 0 };
   let linkState = "connecting"; // connecting | on | off
   let phase = "idle"; // idle | sending | sent | done
+  let firstRun = false; // the quiet first-use sentence in the toolbar; the server decides (settings file, INKBACK_FIRST_RUN) and says so in /state, hello and done
+  let firstPen = false; // the Pen is chosen for the user once, on the first run
+  let lastFr = ""; // which sentence the toolbar showed last, so only a change fades in
   let clearArmed = null;
   let sse = null;
   let quietTimer = null; // fires the "/inkback:review pull" hint when a Send gets no reaction
@@ -197,6 +200,8 @@ svg.ink g.draft { opacity: .9; }
 .bar.dragging { transition: none; }
 .bar .grip { color: color-mix(in srgb, var(--fg) 35%, transparent); cursor: grab; padding: 0 2px 0 4px; display: grid; place-items: center; }
 .bar .grip:active { cursor: grabbing; }
+.bar .fr { color: var(--label); font-size: 12.5px; line-height: 1.2; white-space: nowrap; padding: 0 8px 0 4px; pointer-events: none; user-select: none; -webkit-user-select: none; }
+.bar .fr.fresh { animation: fadeOnly 200ms ease both; }
 .sep { width: 1px; height: 22px; background: color-mix(in srgb, var(--fg) 8%, transparent); margin: 0 4px; }
 .tb {
   position: relative; width: 36px; height: 36px; border-radius: 999px; border: 0; padding: 0; display: grid; place-items: center;
@@ -314,6 +319,7 @@ svg.ink g.draft { opacity: .9; }
   .bar { left: 8px; right: 8px; bottom: 8px; width: fit-content; max-width: calc(100vw - 16px); margin: 0 auto; transform: none; animation-name: riseN;
     flex-wrap: wrap; justify-content: center; row-gap: 4px; border-radius: 24px; }
   .bar .grip, .bar .sep { display: none; }
+  .bar .fr { order: -1; flex-basis: 100%; text-align: center; padding: 2px 8px 4px; white-space: normal; }
   .ticker { bottom: 108px; max-width: calc(100vw - 24px); overflow: hidden; text-overflow: ellipsis; }
 }
 
@@ -1299,6 +1305,9 @@ svg.ink g.queued .area-fill { fill: none; }
     const s = sendLabel();
     const btn = (name, title, key, extra = "") =>
       `<button class="tb ${extra}" type="button" data-${name.startsWith("act:") ? "act" : "tool"}="${name.replace("act:", "")}" aria-label="${title}">${svgIcon(name.replace("act:", "") === "undo" ? "undo" : name.replace("act:", ""))}<span class="kbd">${title}${key ? `<b>${key}</b>` : ""}</span></button>`;
+    const fr = firstRunText();
+    const frHtml = fr ? `<span class="fr${fr !== lastFr ? " fresh" : ""}">${fr}</span>` : "";
+    lastFr = fr;
     const html = `
       <span class="grip" title="Drag">${svgIcon("grip", 16)}</span>
       <button class="tb mode${mode === "browse" ? " on" : ""}" type="button" data-act="mode" aria-label="Browse the page">${svgIcon("hand")}<span class="st"></span><span class="kbd">${mode === "browse" ? "Back to drawing" : "Browse the page"}<b>V · esc</b></span></button>
@@ -1310,9 +1319,19 @@ svg.ink g.queued .area-fill { fill: none; }
       <span class="sep"></span>
       <button class="tb" type="button" data-act="undo" aria-label="Undo my last mark" ${undo.length ? "" : "disabled style='opacity:.35'"}>${svgIcon("undo")}<span class="kbd">Undo my last mark<b>⌘Z</b></span></button>
       <span class="sep"></span>
+      ${frHtml}
       <button class="send ${s.cls}" type="button" data-act="send" ${s.disabled ? "disabled" : ""}><span class="live"></span><span class="label">${s.label}</span>${s.count || s.cls === "done" ? `<span class="cnt"><span class="num">${s.count || ""}</span>${svgIcon("check", 13)}</span>` : ""}</button>
       <button class="tb danger${clearArmed ? " armed" : ""}${phase === "done" && !clearArmed ? " glow" : ""}" type="button" data-act="clear" aria-label="Clear everything">${svgIcon("trash")}${clearArmed ? "<span>Sure?</span>" : `<span class="kbd">Clear all pages</span>`}</button>`;
-    if (html !== lastBar) { lastBar = html; bar.innerHTML = html; }
+    if (html !== lastBar) {
+      lastBar = html; bar.innerHTML = html;
+      if (bar.style.left && !NARROW.matches) placeBar(parseFloat(bar.style.left), parseFloat(bar.style.top)); // a wider or narrower bar must not hang off the edge
+    }
+  }
+  // The first-use sentence: none once the first round is done, none while sending or waiting for Claude.
+  function firstRunText() {
+    if (!firstRun || phase === "sending" || phase === "sent" || phase === "done") return "";
+    if (totals.unsent > 0) return "Send it. See it back.";
+    return totals.notes + totals.shapes === 0 ? "Circle what needs changing" : "";
   }
 
   // ---------------------------------------------------------------------------
@@ -1635,6 +1654,8 @@ svg.ink g.queued .area-fill { fill: none; }
       shapes = r.shapes || [];
       notes = r.notes || [];
       totals = r.totals || totals;
+      firstRun = typeof r.firstRun === "boolean" ? r.firstRun : !!CFG.firstRun;
+      if (firstRun && !firstPen && mode === "browse" && !shapes.length && !notes.length) { firstPen = true; tool = "pen"; applyInk(); setMode("draw"); } // the prompt and the tool agree: first run opens with the Pen (Esc gives the page back)
       const inView = (x, y, fn) => { // hit testing only sees the window
         const sx = scrollX, sy = scrollY, off = y < sy || y >= sy + innerHeight || x < sx || x >= sx + innerWidth;
         if (off) scrollTo({ left: Math.max(0, x - innerWidth / 2), top: Math.max(0, y - innerHeight / 2), behavior: "instant" });
@@ -1676,6 +1697,7 @@ svg.ink g.queued .area-fill { fill: none; }
         case "done":
           for (const n of notes) if (n.batch && (!m.batch || n.batch === m.batch) && (n.status === "pending" || n.status === "working")) { n.status = "done"; updatePin(n); }
           phase = "done";
+          if (m.firstRun === false) firstRun = false;
           totals.open = 0;
           renderToolbar();
           if (m.review) showReview();

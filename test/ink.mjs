@@ -9,6 +9,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { firstRoundDone, firstRunOn, markFirstRoundDone, readSettings } from "../server/settings.mjs";
 import { inkForCluster, returnMarks, viewInk, followUp, followLines } from "../server/ink.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -75,9 +76,37 @@ const OVERLAY = fs.readFileSync(path.join(here, "..", "server", "overlay.js"), "
   console.log("✓ ink copies, thinning, returned marks (new ids, flag, moved along), follow-up text (no browser)");
 }
 
+// ---------------------------------------------------------------------------
+// The first-use setting: one line in settings.json, no browser
+// ---------------------------------------------------------------------------
+{
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "inkback-settings-"));
+  const cache = path.join(home, "not-yet-made"); // the folder does not exist yet
+  assert.equal(firstRoundDone(cache), false, "missing file: not done yet");
+  assert.equal(firstRunOn(cache, {}), true, "missing file: the prompt shows");
+  fs.mkdirSync(cache, { recursive: true });
+  for (const junk of ["", "{not json", "[]", "null", "42", '{"firstRoundDone":"yes"}']) {
+    fs.writeFileSync(path.join(cache, "settings.json"), junk);
+    assert.equal(firstRoundDone(cache), false, "broken or odd file counts as not done: " + JSON.stringify(junk));
+    assert.deepEqual(typeof readSettings(cache), "object", "and never throws");
+  }
+  fs.rmSync(cache, { recursive: true });
+  assert.equal(markFirstRoundDone(cache), true, "saves, making the folder");
+  assert.equal(fs.readFileSync(path.join(cache, "settings.json"), "utf8").trim().split("\n").length, 1, "the setting is one line");
+  assert.equal(JSON.parse(fs.readFileSync(path.join(cache, "settings.json"), "utf8")).firstRoundDone, true);
+  assert.equal(firstRoundDone(cache), true, "reads done after saving (a restart reads the same file)");
+  assert.equal(firstRunOn(cache, {}), false, "done: the prompt is gone");
+  assert.equal(firstRunOn(cache, { INKBACK_FIRST_RUN: "1" }), true, "INKBACK_FIRST_RUN=1 forces it on");
+  fs.writeFileSync(path.join(home, "blocker"), "a file, not a folder");
+  assert.equal(markFirstRoundDone(path.join(home, "blocker", "x")), false, "an unwritable folder returns false instead of throwing");
+  fs.rmSync(home, { recursive: true, force: true });
+  console.log("✓ settings: missing or broken file means not done, saves one line, reads done, INKBACK_FIRST_RUN forces on (no browser)");
+}
+
 let saved = { shapes: [], notes: [] }; // what the overlay last saved to the stand-in bridge
 let initial = { shapes: [], notes: [] }; // what it is given on load
 let review = null; // the result screen the stand-in serves (GET /review)
+const sseOut = []; // open event streams, so a test can pretend Claude finished
 const posted = []; // [path, body] the overlay sent to the stand-in
 let png = null; // a plain white picture for Before and After, made by the browser below
 const readJson = (req) => new Promise((r) => { let b = ""; req.on("data", (d) => (b += d)); req.on("end", () => { try { r(JSON.parse(b || "{}")); } catch { r({}); } }); });
@@ -85,7 +114,7 @@ const sendJson = (res, obj) => { res.writeHead(200, { "Content-Type": "applicati
 const totals = () => ({ notes: saved.notes.length, shapes: saved.shapes.length, pages: 1, unsent: saved.notes.length + saved.shapes.length, open: 0, batches: 0 });
 const server = http.createServer((req, res) => {
   const u = new URL(req.url, "http://x");
-  if (u.pathname === "/events") { res.writeHead(200, { "Content-Type": "text/event-stream" }); res.write("data: " + JSON.stringify({ type: "hello" }) + "\n\n"); return; }
+  if (u.pathname === "/events") { res.writeHead(200, { "Content-Type": "text/event-stream" }); res.write("data: " + JSON.stringify({ type: "hello" }) + "\n\n"); sseOut.push(res); return; }
   if (u.pathname === "/state") {
     if (req.method === "PUT") {
       let b = ""; req.on("data", (d) => (b += d));
@@ -93,7 +122,7 @@ const server = http.createServer((req, res) => {
       return;
     }
     res.writeHead(200, { "Content-Type": "application/json" });
-    return res.end(JSON.stringify({ ...initial, totals: totals(), review: !!review }));
+    return res.end(JSON.stringify({ ...initial, totals: totals(), review: !!review, firstRun: (u.searchParams.get("url") || "").includes("fr=1") }));
   }
   if (u.pathname === "/review") return sendJson(res, { ok: true, review });
   if (u.pathname === "/review/img") { res.writeHead(200, { "Content-Type": "image/png" }); return res.end(png); }
@@ -479,6 +508,89 @@ try {
     await p2.close();
     initial = { shapes: [], notes: [] }; saved = { shapes: [], notes: [] };
     console.log("✓ returned marks: hollow and dashed, Queued · not sent, one message, page untouched, normal after Send, deleted with their note");
+  }
+
+  // ---------------------------------------------------------------------------
+  // One quiet first-use sentence in the toolbar
+  // ---------------------------------------------------------------------------
+  {
+    const frOpen = async (query = "fr=1") => {
+      const page = await ctx.newPage();
+      await page.goto(base + "/?" + query, { waitUntil: "load" });
+      await page.waitForFunction(() => window.__inkback && window.__inkback.ready);
+      await sleep(250);
+      return page;
+    };
+    const read = (page) => inShadow(page, (root) => {
+      const bar = root.querySelector(".bar"), fr = bar.querySelector(".fr"), r = bar.getBoundingClientRect();
+      return {
+        text: fr ? fr.textContent : null, inBar: fr ? bar.contains(fr) : null, pe: fr ? getComputedStyle(fr).pointerEvents : null,
+        penOn: root.querySelector("[data-tool='pen']").classList.contains("on"), browseOn: root.querySelector("[data-act='mode']").classList.contains("on"),
+        fixed: [...root.querySelectorAll("*")].filter((e) => getComputedStyle(e).position === "fixed" && !e.closest(".bar") && e.getBoundingClientRect().width > 0 && !e.classList.contains("rim") && !e.classList.contains("chrome") && !e.classList.contains("doc")).length,
+        left: r.left, right: r.right, w: innerWidth,
+      };
+    });
+    initial = { shapes: [], notes: [] }; saved = { shapes: [], notes: [] };
+    const p1 = await frOpen();
+    let r = await read(p1);
+    assert.equal(r.text, "Circle what needs changing", "first run, nothing marked");
+    assert.equal(r.inBar, true, "it is text inside the toolbar");
+    assert.equal(r.pe, "none", "and takes no clicks");
+    assert.equal(r.penOn, true, "first run opens with the Pen chosen");
+    assert.equal(r.browseOn, false);
+    // A click on the page itself is not blocked by anything new: the stand-in button is under the point.
+    assert.equal(await p1.evaluate(() => { const b = document.getElementById("b"); const q = b.getBoundingClientRect(); const e = document.elementFromPoint(q.left + 5, q.top + 5); return e === b || e.tagName === "INKBACK-OVERLAY"; }), true, "nothing covers the page");
+    await drawCircle(p1);
+    r = await read(p1);
+    assert.equal(r.text, "Send it. See it back.", "one unsent mark");
+    // Sending: the sentence steps aside.
+    await inShadow(p1, (root) => root.querySelector("[data-act='send']").click());
+    await sleep(500);
+    assert.equal((await read(p1)).text, null, "while sent and waiting there is no sentence");
+    // A round that is never answered does not remove it for good: a new page still asks the server, which says yes.
+    const keep = saved; saved = { shapes: [], notes: [] }; // the stand-in counts marks for every page; this fresh page has none
+    const pw = await frOpen();
+    assert.equal((await read(pw)).text, "Circle what needs changing", "no finished round: still there on a fresh page");
+    await pw.close();
+    saved = keep;
+    // Claude finishes: gone at once.
+    for (const s of sseOut) s.write("data: " + JSON.stringify({ type: "done", batch: 1, firstRun: false }) + "\n\n");
+    await sleep(400);
+    assert.equal((await read(p1)).text, null, "after the finished round it is gone");
+    await p1.close();
+    // Server says it is off (the settings file says done): never there, and the tool opens Browse-first as today.
+    const p2 = await frOpen("fr=0");
+    r = await read(p2);
+    assert.equal(r.text, null, "first run off: never there");
+    assert.equal(r.penOn, false);
+    assert.equal(r.browseOn, true, "after the first round it opens Browse-first");
+    await drawCircle(p2);
+    assert.equal((await read(p2)).text, null, "and a mark does not bring it back");
+    await p2.close();
+    // A narrow window: 600 px wide, the toolbar with the sentence still fits.
+    initial = { shapes: [], notes: [] }; saved = { shapes: [], notes: [] };
+    const p3 = await frOpen();
+    await p3.setViewportSize({ width: 600, height: 700 });
+    await sleep(300);
+    r = await read(p3);
+    assert.equal(r.text, "Circle what needs changing");
+    assert.ok(r.left >= 0 && r.right <= 600, "toolbar fits at 600 px: " + r.left + " to " + r.right);
+    await drawCircle(p3);
+    r = await read(p3);
+    assert.equal(r.text, "Send it. See it back.");
+    assert.ok(r.left >= 0 && r.right <= 600, "and still fits with the second sentence");
+    await p3.close();
+    // A dragged toolbar is pulled back inside when the sentence makes it wider.
+    initial = { shapes: [], notes: [] }; saved = { shapes: [], notes: [] };
+    const p4 = await frOpen();
+    await p4.evaluate(() => localStorage.setItem("inkback:bar", JSON.stringify({ x: 5000, y: 300 }))); // dragged to the far right edge
+    await p4.reload(); await p4.waitForFunction(() => window.__inkback && window.__inkback.ready); await sleep(400);
+    const rr = await read(p4);
+    assert.equal(rr.text, "Circle what needs changing");
+    assert.ok(rr.left >= 0 && rr.right <= rr.w, "dragged to the right edge, still inside once the sentence appears: " + rr.right + " of " + rr.w);
+    await p4.close();
+    initial = { shapes: [], notes: [] }; saved = { shapes: [], notes: [] };
+    console.log("✓ first-use sentence: both texts exact, inside the toolbar, no clicks taken, Pen first only on the first run, gone after done, fits at 600 px");
   }
 } finally {
   await ctx.close();
