@@ -33,6 +33,23 @@ Draw and comment right on the page, press **Send to Claude**, and Claude edits t
 
 **Limits:** Google Chrome and Node 20+ only. Local addresses only (localhost, 127.0.0.1, *.local, *.test). A returned pen mark follows its element, but can sit slightly off after the page reflows.
 
+## See it
+
+<table>
+<tr>
+<td width="50%"><img src="assets/tools-pen.png" alt="The indigo brush pen circles a faint 'Shop the collection' link on a ceramics shop page; its linked note, 'Make this the main button', is open beside it and the toolbar below reads 'Send it. See it back.'"><br><b>Pen.</b> Circle it, and a note opens for it.</td>
+<td width="50%"><img src="assets/tools-note.png" alt="A numbered pin on the price under a vase photo, with a note open: 'Is this still 890? Check the price'."><br><b>Note.</b> Double-click anything to pin a note to it.</td>
+</tr>
+<tr>
+<td><img src="assets/tools-area.png" alt="A Spotlight area box around the line 'Ingrid Halde, founder'; the rest of the page is dimmed and the note reads 'Drop the founder line here'."><br><b>Spotlight area</b> (key <code>A</code>). Box a region; the rest of the page dims.</td>
+<td><img src="assets/result-not-right.png" alt="After Not right, the user's circle is back on the page as a dashed outline around the new black button, with a pin labelled 'Queued · not sent: Put this back the way it was' and a message that nothing has been undone yet."><br><b>Not right.</b> Your mark comes back, queued with "Put this back the way it was".</td>
+</tr>
+<tr>
+<td valign="top"><img src="assets/result-labels.png" alt="The result screen headed '1 changed · 1 no visible change · 1 couldn't check · 1 also changed', with three cards: Changed (the link is now a black button, shown with a before/after slider), No visible change (the price note) and Couldn't check (the founder line was removed, so only the Before picture is shown)."><br><b>Results.</b> Each note is labelled Changed, No visible change or Couldn't check.</td>
+<td valign="top"><img src="assets/result-also-changed.png" alt="'Also changed (1)': a boxed before/after slider shows the studio quote turned from light to bold, a change nobody asked for."><br><b>Also changed.</b> Changes away from your notes get their own slider.</td>
+</tr>
+</table>
+
 ## How to use it
 
 With your app running, start Claude Code as usual (no special flag) and run:
