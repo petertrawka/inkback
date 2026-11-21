@@ -3,7 +3,8 @@
 // sub-pixel text) do not count. "changed" = a real number of pixels moved clearly.
 import fsp from "node:fs/promises";
 
-export const CHANNEL_TOLERANCE = 24; // a pixel only counts when one colour channel moved by more than this (of 255)
+export const CHANNEL_TOLERANCE = 8;  // a pixel only counts when one colour channel moved by more than this (of 255).
+// Was 24, which hid soft tints (white to #eef3f8 moves at most 17). Real anti-aliasing noise is a few stray pixels, caught by MIN_PIXELS/MIN_SHARE.
 export const MIN_PIXELS = 12;        // ...and at least this many pixels, or this share of the picture, must count
 export const MIN_SHARE = 0.0005;
 

@@ -27,7 +27,8 @@ assert.equal(await compareFiles(page, base, await make("same")), "same", "identi
 assert.equal(await compareFiles(page, base, await make("noisy", { noise: 6 })), "same", "anti-aliasing-level noise stays No visible change");
 assert.equal(await compareFiles(page, base, await make("red", { button: [238, 51, 51] })), "changed", "a real colour change is Changed");
 assert.equal(await compareFiles(page, base, await make("size", { w: 310 })), "changed", "different size is Changed");
-console.log("✓ picture comparison: identical, noise, real change, size change");
+assert.equal(await compareFiles(page, await make("white", { button: [255, 255, 255] }), await make("tint", { button: [238, 243, 248] })), "changed", "a soft tint (white to #eef3f8) counts as Changed");
+console.log("✓ picture comparison: soft tint, identical, noise, real change, size change");
 // "Also changed": whole pages, 300 wide; page = tall page with a button (top), a middle block and a footer (bottom).
 async function tall(name, { button = [51, 102, 204], footer = [60, 60, 60], h = 1500 } = {}) {
   const b64 = await page.evaluate(({ button, footer, h }) => {
