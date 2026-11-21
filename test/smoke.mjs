@@ -112,6 +112,12 @@ await client.close();
   await fetch(`${s2.endpoint}/send`, { method: "POST", headers: H2, body: JSON.stringify({ url: u2 }) });
   assert.equal(await st(), true, "sent but not finished: the prompt stays");
   assert.ok(!fs.existsSync(path.join(home, ".cache", "inkback", "settings.json")), "nothing saved before the round finishes");
+  // Send builds its batch in the background (slower on CI): wait until Claude could pick it up.
+  for (let i = 0; i < 100; i++) {
+    const r = await c2.callTool({ name: "inkback_pull", arguments: {} });
+    if (!/"empty"/.test(r.content?.[0]?.text || "")) break;
+    await sleep(100);
+  }
   await c2.callTool({ name: "inkback_done", arguments: { summary: "ok" } });
   const saved2 = fs.readFileSync(path.join(home, ".cache", "inkback", "settings.json"), "utf8");
   assert.equal(JSON.parse(saved2).firstRoundDone, true, "finished round saved as one line");
