@@ -23,6 +23,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { compareFiles, compareRegions } from "./compare.mjs";
+import { bypassCache } from "./fresh.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const VERSION = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8")).version; // plugin root
@@ -183,6 +184,8 @@ async function pageFor(url, fresh = false) {
   if (found) return { page: found, temp: false };
   const page = await backgroundPage(ctx);
   await page.addInitScript("window.__INKBACK_RENDER_ONLY__ = true;");
+  // Straight from the server: a static server's old files otherwise come from Chrome's cache and the copy shows the old page.
+  await bypassCache(page).catch((e) => log(`cache bypass failed: ${String(e.message).split("\n")[0]}`));
   await page.goto(url, { waitUntil: "networkidle", timeout: 30000 }).catch(() => {});
   await page.waitForFunction(() => window.__inkback && window.__inkback.ready, null, { timeout: 8000 }).catch(() => {});
   await page.waitForTimeout(250);
@@ -480,16 +483,7 @@ async function shootAfter(batch) {
     let page = null, temp = false;
     const excl = []; // page rectangles the user's notes already cover: changes in there are not "also"
     try {
-      ({ page, temp } = await pageFor(url, true));
-      // Bypass the cache and load again: otherwise Chrome can serve the old CSS/JS and "after" equals "before".
-      try {
-        const cdp = await page.context().newCDPSession(page);
-        await cdp.send("Network.setCacheDisabled", { cacheDisabled: true });
-        await page.reload({ waitUntil: "networkidle", timeout: 30000 }).catch(() => {});
-        await page.waitForFunction(() => window.__inkback && window.__inkback.ready, null, { timeout: 8000 }).catch(() => {});
-        await page.waitForTimeout(250);
-        await cdp.detach().catch(() => {});
-      } catch (e) { log(`fresh reload skipped: ${String(e.message).split("\n")[0]}`); }
+      ({ page, temp } = await pageFor(url, true)); // a new tab loaded with Chrome's cache off (see fresh.mjs)
       await page.evaluate(() => window.__inkback && window.__inkback.hide(true)).catch(() => {});
       for (const it of items) {
         const file = it.before.replace(/-before\.png$/, "-after.png");
@@ -622,7 +616,7 @@ const TOOLS = [
   },
   {
     name: "inkback_screenshot",
-    description: "Take a screenshot of the annotation browser to verify a change. Returns the image inline and the file path. Optional url (rendered in a background tab, the user's tab stays where it is), full (full page, rendered in a background tab so the user's tab is never resized), selector (clip to an element), chrome (keep the annotation toolbar visible, off by default).",
+    description: "Take a screenshot of the annotation browser to verify a change. Returns the image inline and the file path. Always renders a fresh load of the page (current files, no cache) in a background tab; the user's tab is never touched. Optional url (default: the page the user is on), full (full page), selector (clip to an element), chrome (keep the annotation toolbar visible, off by default).",
     inputSchema: { type: "object", properties: { url: { type: "string" }, full: { type: "boolean" }, selector: { type: "string" }, chrome: { type: "boolean" } } },
   },
   {
@@ -708,11 +702,11 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
       return text("shown");
     }
     case "inkback_screenshot": {
-      // A url renders in a tab behind the user's (or reuses one already on it): never navigate the tab they're marking up.
-      let { page, temp } = args.url ? await pageFor(assertLocal(String(args.url))) : { page: mainPage && !mainPage.isClosed() ? mainPage : null, temp: false };
-      // full on the user's tab would resize it for the capture: render a copy behind it instead
-      if (page && args.full && !temp) ({ page, temp } = await pageFor(page.url(), true));
-      if (!page) throw new Error("No page open. Pass a url.");
+      // Always a fresh copy in a tab behind the user's, loaded with the cache off: the user's tab may still show
+      // the page from before Claude's edit (no hot reload), and is never navigated or resized by us.
+      const target = args.url ? assertLocal(String(args.url)) : mainPage && !mainPage.isClosed() ? mainPage.url() : null;
+      if (!target) throw new Error("No page open. Pass a url.");
+      const { page, temp } = await pageFor(target, true);
       await fsp.mkdir(SHOTS_DIR, { recursive: true });
       const file = path.join(SHOTS_DIR, `verify-${Date.now()}.png`);
       if (!args.chrome) await page.evaluate(() => window.__inkback && window.__inkback.capture(true)).catch(() => {});
