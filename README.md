@@ -44,8 +44,6 @@ With your app running, start Claude Code as usual (no special flag) and run:
 
 Claude says it is waiting. Draw, add notes, press **Send to Claude**, and Claude edits your code.
 
-Optional speed-up: start Claude Code with `claude --dangerously-load-development-channels plugin:inkback@inkback` and add `--push` to the command. Notes then arrive instantly instead of through the waiting loop. You never need this.
-
 ## Credits
 
 Inkback is built on [claude-annotate](https://github.com/FinalAngel/claude-annotate) by Angelo Dini, released under the MIT licence. The browser bridge, element context and Send loop are his. Inkback adds its own look, pen, spotlight areas and before/after review.
