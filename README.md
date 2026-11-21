@@ -14,6 +14,7 @@ Inkback is a Claude Code plugin for visual feedback on your running app. Comment
 - **Send to Claude.** Your notes, the element under each one (with its React component and source file when known) and screenshots land in your Claude Code session.
 - **Before / after.** When Claude finishes, each spot comes back with a slider. The "after" picture follows the element even if content above it moved.
 - **Two endings.** *Looks good, close* ends the round and closes the window. *More feedback* reloads the page for another round.
+- **Not right.** Every result (asked-for or "Also changed") has a *Not right* button. Press it on as many as you like: the next round starts with a ready-made note on each spot, "Put this back the way it was", with the before picture attached. Edit the text or add more notes, then Send as usual.
 - **Local only.** It runs on your machine in its own Chrome window. No cloud, and no AI calls beyond your Claude session.
 
 ## Install

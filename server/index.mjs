@@ -323,6 +323,7 @@ function renderContent(batch, sections) {
       const linked = note.shapeId && sec.pageState.shapes.find((k) => k.id === note.shapeId);
       const refs = (Array.isArray(note.refs) ? note.refs : []).filter((r) => REF_NAME.test(r) && fs.existsSync(path.join(REFS_DIR, r)));
       for (const r of refs) out += `reference image the user attached (Read it): ${path.join(REFS_DIR, r)}\n`;
+      if (note.restore) out += `"Not right" on the last round: make the area ${note.restore.x},${note.restore.y} → ${note.restore.w}×${note.restore.h} look like the attached picture again (it shows how it looked before the last round)\n`;
       if (linked) { out += `this note is about the area the user drew around: ${shapeWord(linked)}\n`; out += fmtCtx(linked.ctx, "  "); }
       if (cluster && cluster.shapes.length) {
         out += `marks here: ${cluster.shapes.map(shapeWord).join("; ")}\n`;
@@ -531,6 +532,28 @@ async function shootAfter(batch) {
 async function dropReview() {
   state.review = null;
   await fsp.rm(COMPARE_DIR, { recursive: true, force: true }).catch(() => {});
+}
+// "Not right" on a result card: a ready-made note on that spot for the next round, the before picture attached
+// as a reference image (copied out of the compare folder, which More feedback deletes). picks: "k=2" | "a=1".
+const PUT_BACK = "Put this back the way it was";
+async function notRightNotes(picks) {
+  const r = state.review, out = [];
+  if (!r) return out;
+  for (const q of new Set(picks.map(String))) {
+    const m = /^([ka])=(\d+)$/.exec(q);
+    if (!m) continue;
+    const it = m[1] === "k" ? r.items.find((x) => x.k === Number(m[2])) : ((r.also && r.also.items) || []).find((x) => x.a === Number(m[2]));
+    if (!it || !it.before || !it.url) continue;
+    const area = m[1] === "k" ? { x: it.clip.x, y: it.clip.y, w: it.clip.width, h: it.clip.height } : { ...it.rect };
+    // The pin: the first note's own spot for a noted card, the middle of the box for an "Also changed" one.
+    let x = area.x + area.w / 2, y = area.y + area.h / 2;
+    if (m[1] === "k" && it.notes.length) for (const [, p] of state.pages) for (const n of p.notes) if (n.n === it.notes[0] && n.batch === r.batch) { x = n.x; y = n.y; }
+    const ref = `${crypto.randomBytes(6).toString("hex")}.png`;
+    try { await fsp.mkdir(REFS_DIR, { recursive: true }); await fsp.copyFile(it.before, path.join(REFS_DIR, ref)); }
+    catch (e) { log(`not right ${q}: before picture missing (${e.message})`); continue; }
+    out.push({ url: it.url, note: { id: `nr${crypto.randomBytes(5).toString("hex")}`, n: 0, x: Math.round(x), y: Math.round(y), color: "sage", text: PUT_BACK, refs: [ref], status: "draft", ctx: null, batch: null, restore: { x: Math.round(area.x), y: Math.round(area.y), w: Math.round(area.w), h: Math.round(area.h) } } });
+  }
+  return out;
 }
 function reviewView() {
   const r = state.review;
@@ -884,9 +907,15 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/review/more") {
       // "More feedback": drop the finished round's notes and marks so the page is clean for the next one.
       const id = state.review ? state.review.batch : null;
+      const body = JSON.parse((await readBody(req)) || "{}");
+      const made = await notRightNotes(Array.isArray(body.notRight) ? body.notRight.slice(0, 50) : []); // before dropReview: it needs the before pictures
       await dropReview();
       if (id != null) for (const [, p] of state.pages) { p.notes = p.notes.filter((n) => n.batch !== id); p.shapes = p.shapes.filter((x) => x.batch !== id); }
-      return json(res, 200, { ok: true, totals: totals() });
+      let max = 0;
+      for (const pg of state.pages.values()) for (const n of pg.notes) if (n.n > max) max = n.n;
+      for (const m of made) { m.note.n = ++max; pageState(m.url).notes.push(m.note); }
+      if (max >= state.nextNote) state.nextNote = max + 1;
+      return json(res, 200, { ok: true, notRight: made.length, totals: totals() });
     }
     if (req.method === "POST" && url.pathname === "/clear") {
       if (state.sending) return json(res, 409, { ok: false, error: "busy" });

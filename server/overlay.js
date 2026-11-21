@@ -531,6 +531,12 @@ svg.ink .spotdim.on { opacity: 1; }
 .rv-lab.also { color: var(--fg); box-shadow: inset 0 0 0 1px var(--warn); }
 .rv-box { position: absolute; border: 2px solid var(--warn); border-radius: 4px; box-shadow: 0 0 0 1px rgba(0,0,0,.35); pointer-events: none; }
 .rv-hint { margin-top: 6px; font-size: 12px; color: var(--faint); }
+.rv-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 6px; }
+.rv-row .rv-hint { margin-top: 0; }
+.rv-nr { flex: none; height: 28px; padding: 0 12px; border-radius: var(--r-ctl); font: 500 12.5px var(--font); cursor: pointer; background: transparent; color: var(--fg); border: 1px solid var(--hair-strong); transition: background-color 150ms, transform 120ms var(--ease-out); }
+.rv-nr.on { color: var(--warn); border-color: var(--warn); background: rgba(214,189,142,.08); }
+.rv-nr:active { transform: scale(.97); }
+@media (hover: hover) and (pointer: fine) { .rv-nr:hover { background: rgba(255,255,255,.06); } }
 .rv-zoom { position: absolute; inset: 0; z-index: 2; overflow: auto; background: rgba(8,8,10,.92); padding: 56px 16px 16px; }
 .rv-zoom .cmp { margin: 0 auto; border-radius: 0; max-width: none; }
 .rv-zoom-x { position: fixed; top: 12px; right: 16px; z-index: 3; height: 34px; padding: 0 14px; border-radius: var(--r-ctl); font: 500 13px var(--font); cursor: pointer; background: var(--fg); color: #1c1917; border: 1px solid var(--fg); }
@@ -1564,6 +1570,14 @@ svg.ink .spotdim.on { opacity: 1; }
       shapes = r.shapes || [];
       notes = r.notes || [];
       totals = r.totals || totals;
+      const fresh = notes.filter((n) => n.restore && !n.ctx);
+      for (const n of fresh) { // made by "Not right" on the server, which can't see the page
+        const sx = scrollX, sy = scrollY, off = n.y < sy || n.y >= sy + innerHeight || n.x < sx || n.x >= sx + innerWidth;
+        if (off) scrollTo({ left: Math.max(0, n.x - innerWidth / 2), top: Math.max(0, n.y - innerHeight / 2), behavior: "instant" }); // hit testing only sees the window
+        n.ctx = ctxAtPoint(n.x, n.y);
+        if (off) scrollTo({ left: sx, top: sy, behavior: "instant" });
+      }
+      if (fresh.length) save();
       if (totals.open > 0) phase = "sent";
       else if (totals.batches > 0 && totals.unsent === 0) phase = "done";
       renderInk(); renderPins(); renderToolbar();
@@ -1714,7 +1728,7 @@ svg.ink .spotdim.on { opacity: 1; }
       return `<section class="rv-card" data-q="k=${it.k}">${label}
         <div class="cmp${it.after ? "" : " solo"}" style="--pos:50%"><img class="b" alt="Before"><img class="a" alt="After"><span class="bar-h"><span class="knob"></span></span>
           <span class="tag-b">Before</span><span class="tag-a">After</span>
-          <input type="range" min="0" max="100" value="50" aria-label="Compare before and after"></div><div class="rv-hint">Click the picture to see it at real size</div></section>`;
+          <input type="range" min="0" max="100" value="50" aria-label="Compare before and after"></div><div class="rv-row"><span class="rv-hint">Click the picture to see it at real size</span><button type="button" class="rv-nr" aria-pressed="false">Not right</button></div></section>`;
     }).join("");
     // "Also changed": areas that moved away from the user's notes. It sorts and highlights, never hides.
     const al = rv.also || { items: [], unchecked: true };
@@ -1723,7 +1737,7 @@ svg.ink .spotdim.on { opacity: 1; }
       return `<section class="rv-card" data-q="a=${it.a}"><div class="rv-note"><span class="rv-n">·</span><div><div class="rv-lab also">Changed away from your notes</div></div></div>
         <div class="cmp" style="--pos:50%"><img class="b" alt="Before"><img class="a" alt="After"><span class="bar-h"><span class="knob"></span></span>${bx}
           <span class="tag-b">Before</span><span class="tag-a">After</span>
-          <input type="range" min="0" max="100" value="50" aria-label="Compare before and after"></div><div class="rv-hint">Click the picture to see it at real size</div></section>`;
+          <input type="range" min="0" max="100" value="50" aria-label="Compare before and after"></div><div class="rv-row"><span class="rv-hint">Click the picture to see it at real size</span><button type="button" class="rv-nr" aria-pressed="false">Not right</button></div></section>`;
     }).join("");
     const alsoHtml = al.items.length
       ? `<div class="rv-also-h">Also changed (${al.items.length})</div>${al.unchecked ? '<div class="rv-also-sub">Part of the page could not be checked.</div>' : ""}${alsoCards}`
@@ -1769,13 +1783,27 @@ svg.ink .spotdim.on { opacity: 1; }
         });
       }).catch(() => { cmp.classList.add("missing"); });
     }
+    // "Not right": each pressed card becomes a ready-made note ("Put this back the way it was", the before picture
+    // attached) on that spot in the next round. Several can be pressed; More feedback then starts that round.
+    const picks = new Set(), moreBtn = reviewEl.querySelector(".rv-more");
+    const nrLabel = () => { moreBtn.textContent = picks.size ? `Next round with ${picks.size} note${picks.size === 1 ? "" : "s"}` : "More feedback"; };
+    for (const card of reviewEl.querySelectorAll(".rv-card")) {
+      const b = card.querySelector(".rv-nr"), q = card.dataset.q;
+      b.addEventListener("click", () => {
+        const on = !picks.has(q);
+        if (on) picks.add(q); else picks.delete(q);
+        b.classList.toggle("on", on); b.setAttribute("aria-pressed", String(on));
+        b.textContent = on ? "Not right · goes back in next round" : "Not right";
+        nrLabel();
+      });
+    }
     reviewEl.querySelector(".rv-close").addEventListener("click", async (e) => {
       e.currentTarget.disabled = true; e.currentTarget.textContent = "Closing…";
       try { await req("POST", "/review/close"); } catch { toast("Couldn't close. Close the window yourself."); }
     });
     reviewEl.querySelector(".rv-more").addEventListener("click", async (e) => {
       e.currentTarget.disabled = true;
-      try { await req("POST", "/review/more"); } catch { /* reload anyway */ }
+      try { await req("POST", "/review/more", { notRight: [...picks] }); } catch { if (picks.size) toast("Couldn't add the Not right notes."); }
       hideReview();
       setTimeout(() => location.reload(), 160); // mark up the new version of the page
     });
