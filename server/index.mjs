@@ -22,6 +22,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
+import { compareFiles } from "./compare.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const VERSION = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8")).version; // plugin root
@@ -465,6 +466,7 @@ async function shootAfter(batch) {
       await page.evaluate(() => window.__inkback && window.__inkback.hide(true)).catch(() => {});
       for (const it of items) {
         const file = it.before.replace(/-before\.png$/, "-after.png");
+        it.verdict = "unchecked"; // Changed / No visible change need a real after picture; until we have one we say so
         // Follow the anchored element if it moved; otherwise the same spot on the page.
         let clip = it.clip;
         const now = it.anchor ? await page.evaluate((a) => window.__inkback.locate(a), it.anchor).catch(() => null) : null;
@@ -474,7 +476,11 @@ async function shootAfter(batch) {
           clip = { ...clip, x: clampN(clip.x + dx, 0, Math.max(0, doc.w - clip.width)), y: clampN(clip.y + dy, 0, Math.max(0, doc.h - clip.height)) };
           it.moved = dx !== 0 || dy !== 0;
         }
-        try { await shootRect(page, clip, file); it.after = file; } catch (e) { log(`after shot ${it.k} failed: ${String(e.message).split("\n")[0]}`); }
+        if (it.anchor && !now) { it.gone = true; continue; } // the marked element is no longer on the page: nothing honest to compare
+        try {
+          await shootRect(page, clip, file); it.after = file;
+          it.verdict = await compareFiles(page, it.before, file) === "same" ? "same" : "changed";
+        } catch (e) { log(`after shot or compare ${it.k} failed: ${String(e.message).split("\n")[0]}`); it.verdict = "unchecked"; }
       }
     } catch (e) {
       log(`after shots for ${url} failed: ${String(e.message).split("\n")[0]}`);
@@ -497,6 +503,7 @@ function reviewView() {
     items: r.items.map((it) => ({
       k: it.k,
       after: !!it.after,
+      verdict: it.verdict || "unchecked", // changed | same | unchecked
       notes: it.notes.map((n) => { const k = noteOf(n); return { n, text: k ? k.text : "", status: k ? k.status : "done", result: k ? k.result || "" : "" }; }),
     })),
   };
@@ -626,7 +633,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
         if (batch.compare && batch.compare.length && context) {
           state.sending = true; // no Send while the after pictures are taken
           try { await shootAfter(batch); } finally { state.sending = false; }
-          const items = batch.compare.filter((it) => it.after);
+          const items = batch.compare; // every spot gets a result card; spots we could not check say so
           if (items.length) state.review = { batch: batch.id, summary, items };
         }
       }

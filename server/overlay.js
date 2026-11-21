@@ -506,6 +506,11 @@ svg.ink .spotdim.on { opacity: 1; }
 .rv-t { color: var(--fg); }
 .rv-r { margin-top: 2px; font-size: 12.5px; color: var(--go); }
 .rv-r.skip { color: var(--warn); }
+.rv-lab { display: inline-block; margin-bottom: 3px; padding: 1px 8px; border-radius: 6px; font-size: 12px; font-weight: 500; }
+.rv-lab.changed { color: var(--on-go); background: var(--go); }
+.rv-lab.same { color: var(--fg); box-shadow: inset 0 0 0 1px var(--hair-strong); }
+.rv-lab.unchecked { color: var(--warn); box-shadow: inset 0 0 0 1px var(--warn); }
+.cmp.solo img.a, .cmp.solo .bar-h, .cmp.solo .tag-a, .cmp.solo input { display: none; }
 .cmp { position: relative; border-radius: 10px; overflow: hidden; background: #111113; box-shadow: inset 0 0 0 1px var(--hair); min-height: 120px; }
 .cmp img { display: block; width: 100%; height: auto; opacity: 0; transition: opacity 220ms var(--ease-out); user-select: none; -webkit-user-drag: none; }
 .cmp.ready img { opacity: 1; }
@@ -1639,6 +1644,13 @@ svg.ink .spotdim.on { opacity: 1; }
   // ---------------------------------------------------------------------------
   // Before / after (after Claude's inkback_done)
   // ---------------------------------------------------------------------------
+  // "2 changed · 1 no visible change": the sheet's title says what really happened, never a blanket "Done".
+  function headline(items) {
+    const c = { changed: 0, same: 0, unchecked: 0 };
+    for (const it of items) c[it.verdict in c ? it.verdict : "unchecked"] += it.notes.length || 1;
+    const parts = [c.changed && `${c.changed} changed`, c.same && `${c.same} no visible change`, c.unchecked && `${c.unchecked} couldn't check`].filter(Boolean);
+    return parts.join(" · ") || "Result";
+  }
   let reviewEl = null, reviewUrls = [];
   async function loadImg(k, which) {
     const r = await F(`${CFG.endpoint}/review/img?k=${k}&which=${which}`, { headers: H }); // token in a header, never in a URL
@@ -1686,16 +1698,18 @@ svg.ink .spotdim.on { opacity: 1; }
     reviewEl.setAttribute("role", "dialog");
     reviewEl.setAttribute("aria-label", "Before and after");
     const cards = rv.items.map((it) => {
+      const lab = { changed: "Changed", same: "No visible change", unchecked: "Couldn't check" }[it.verdict] || "Couldn't check";
+      const badge = `<div class="rv-lab ${esc(it.verdict || "unchecked")}">${lab}</div>`;
       const label = it.notes.length
-        ? it.notes.map((n) => `<div class="rv-note"><span class="rv-n">${n.n}</span><div><div class="rv-t">${esc(n.text || "(no text)")}</div>${n.result ? `<div class="rv-r${n.status === "skipped" ? " skip" : ""}">${n.status === "skipped" ? "Skipped · " : ""}${esc(n.result)}</div>` : ""}</div></div>`).join("")
-        : `<div class="rv-note"><span class="rv-n">·</span><div class="rv-t">Marked area</div></div>`;
+        ? it.notes.map((n) => `<div class="rv-note"><span class="rv-n">${n.n}</span><div>${badge}<div class="rv-t">${esc(n.text || "(no text)")}</div>${n.result ? `<div class="rv-r${n.status === "skipped" ? " skip" : ""}">${n.status === "skipped" ? "Skipped · " : ""}${esc(n.result)}</div>` : ""}</div></div>`).join("")
+        : `<div class="rv-note"><span class="rv-n">·</span><div>${badge}<div class="rv-t">Marked area</div></div></div>`;
       return `<section class="rv-card" data-k="${it.k}">${label}
-        <div class="cmp" style="--pos:50%"><img class="b" alt="Before"><img class="a" alt="After"><span class="bar-h"><span class="knob"></span></span>
+        <div class="cmp${it.after ? "" : " solo"}" style="--pos:50%"><img class="b" alt="Before"><img class="a" alt="After"><span class="bar-h"><span class="knob"></span></span>
           <span class="tag-b">Before</span><span class="tag-a">After</span>
           <input type="range" min="0" max="100" value="50" aria-label="Compare before and after"></div><div class="rv-hint">Click the picture to see it at real size</div></section>`;
     }).join("");
     reviewEl.innerHTML = `<div class="rv-sheet">
-      <header class="rv-head"><div class="rv-title">Done</div>${rv.summary ? `<div class="rv-sum">${esc(rv.summary)}</div>` : ""}</header>
+      <header class="rv-head"><div class="rv-title">${esc(headline(rv.items))}</div>${rv.summary ? `<div class="rv-sum">${esc(rv.summary)}</div>` : ""}</header>
       <div class="rv-body">${cards}</div>
       <footer class="rv-foot"><button type="button" class="rv-more">More feedback</button><button type="button" class="rv-close">Looks good, close</button></footer>
     </div>`;
@@ -1708,16 +1722,17 @@ svg.ink .spotdim.on { opacity: 1; }
       let down = null;
       range.addEventListener("pointerdown", (e) => { down = { x: e.clientX, y: e.clientY, v: range.value }; });
       range.addEventListener("click", (e) => {
-        if (!down || Math.abs(e.clientX - down.x) > 4 || Math.abs(e.clientY - down.y) > 4 || !cmp.classList.contains("ready")) return;
+        if (!down || Math.abs(e.clientX - down.x) > 4 || Math.abs(e.clientY - down.y) > 4 || !cmp.classList.contains("ready") || cmp.classList.contains("solo")) return;
         range.value = down.v; cmp.style.setProperty("--pos", down.v + "%"); // a plain click must not move the slider
         openZoom(card, cmp.style.getPropertyValue("--pos"));
       });
-      Promise.all([loadImg(k, "before"), loadImg(k, "after")]).then(([b, a]) => {
+      const hasAfter = !cmp.classList.contains("solo");
+      Promise.all([loadImg(k, "before"), hasAfter ? loadImg(k, "after") : Promise.resolve("")]).then(([b, a]) => {
         const ib = card.querySelector("img.b"), ia = card.querySelector("img.a");
-        ib.src = b; ia.src = a;
+        ib.src = b; if (a) ia.src = a;
         ib.decode().catch(() => {}).then(() => {
           cmp.classList.add("ready");
-          if (reduce) return;
+          if (reduce || !hasAfter) return;
           // One gentle sweep so the change announces itself, then it rests in the middle.
           const t0 = performance.now(), path = [[0, 50], [450, 88], [1100, 12], [1600, 50]];
           const ease = (x) => 0.5 - Math.cos(Math.PI * x) / 2;
