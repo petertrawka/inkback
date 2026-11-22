@@ -983,7 +983,10 @@ async function writeSessionFile() {
     if (!pid) continue;
     try { process.kill(pid, 0); } catch { await fsp.rm(path.join(SESSIONS_DIR, f), { force: true }).catch(() => {}); }
   }
-  await fsp.writeFile(path.join(SESSIONS_DIR, `${PARENT_PID}.json`), JSON.stringify({ endpoint, token: TOKEN, pid: process.pid, startedAt: Date.now() }));
+  // Write then rename, so a reader (the hook, the tests) never sees a half-written file.
+  const sessionPath = path.join(SESSIONS_DIR, `${PARENT_PID}.json`);
+  await fsp.writeFile(sessionPath + ".tmp", JSON.stringify({ endpoint, token: TOKEN, pid: process.pid, startedAt: Date.now() }));
+  await fsp.rename(sessionPath + ".tmp", sessionPath);
 }
 
 
