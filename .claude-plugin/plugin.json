@@ -1,8 +1,8 @@
 {
   "name": "inkback",
   "displayName": "Inkback",
-  "version": "1.3.1",
-  "description": "Comment and draw on your running localhost app, send it to Claude Code, and get a before/after slider for every change. Local only, no cloud. Based on open-source work by Angelo Dini (MIT).",
+  "version": "1.3.2",
+  "description": "Circle what's wrong on your running app, Claude Code fixes it, and you get before/after proof of every change, including the ones you didn't ask for. Local only. Based on open-source work by Angelo Dini (MIT).",
   "author": {
     "name": "Peter Trawka"
   },
@@ -10,11 +10,12 @@
   "repository": "https://github.com/petertrawka/inkback",
   "license": "MIT",
   "keywords": [
+    "claude-code",
     "visual-feedback",
+    "before-after",
     "frontend",
     "design-review",
     "screenshot",
-    "channel",
     "playwright"
   ],
   "mcpServers": {

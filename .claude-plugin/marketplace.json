@@ -3,12 +3,12 @@
   "owner": {
     "name": "Peter Trawka"
   },
-  "description": "Draw on your running localhost app, send it to Claude Code, get a before/after back.",
+  "description": "Circle what's wrong on your running app, Claude Code fixes it, and you get before/after proof of every change, including the ones you didn't ask for. Local only.",
   "plugins": [
     {
       "name": "inkback",
       "displayName": "Inkback",
-      "description": "Comment and draw on your running app, send it to Claude, and get a before/after slider for every change.",
+      "description": "Circle what's wrong on your running app, Claude Code fixes it, and you get before/after proof of every change, including the ones you didn't ask for. Local only.",
       "source": "./"
     }
   ]

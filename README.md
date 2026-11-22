@@ -4,7 +4,7 @@
 
 **Mark what's wrong on your running app, and get proof of what Claude changed, including what you didn't ask for.**
 
-For people building with Claude Code in the terminal or VS Code. Local, no account.
+Works wherever you use Claude Code. Local, no account.
 
 ## Install
 
