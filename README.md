@@ -1,10 +1,10 @@
+![Inkback: a giant INKBACK wordmark over a hairline grid labelled Plugin for Claude Code, Circle, Send, Before / after, Free, Open source. A real Inkback screenshot shows an indigo brush circle around a "Shop the collection" link with the note "Make this the main button", next to the headline "Don't describe the bug. Circle it."](assets/inkback-banner.png)
+
 # Inkback
 
 **Mark what's wrong on your running app, and get proof of what Claude changed, including what you didn't ask for.**
 
 For people building with Claude Code in the terminal or VS Code. Local, no account.
-
-![Inkback's result screen for a ceramics shop page, headed "1 changed · 1 also changed". Note 1, "Make this the main button", is marked Changed with Claude's line "Turned the link into a solid button." The before/after slider splits the spot down the middle: the user's indigo pen circle around a faint "Shop the collection" link on the Before side, a solid black button on the After side.](assets/inkback-hero.png)
 
 ## Install
 
@@ -34,6 +34,8 @@ Draw and comment right on the page, press **Send to Claude**, and Claude edits t
 **Limits:** Google Chrome and Node 20+ only. Local addresses only (localhost, 127.0.0.1, *.local, *.test). A returned pen mark follows its element, but can sit slightly off after the page reflows.
 
 ## See it
+
+![Inkback's result screen for a ceramics shop page, headed "1 changed · 1 also changed". Note 1, "Make this the main button", is marked Changed with Claude's line "Turned the link into a solid button." The before/after slider splits the spot down the middle: the user's indigo pen circle around a faint "Shop the collection" link on the Before side, a solid black button on the After side.](assets/inkback-hero.png)
 
 <table>
 <tr>
