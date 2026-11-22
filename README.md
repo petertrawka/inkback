@@ -1,4 +1,4 @@
-![Inkback: a giant INKBACK wordmark over a hairline grid labelled Plugin for Claude Code, Circle, Send, Before / after, Free, Open source. A real Inkback screenshot shows an indigo brush circle around a "Shop the collection" link with the note "Make this the main button", next to the headline "Don't describe the bug. Circle it."](assets/inkback-banner.png)
+![Inkback: a giant INKBACK wordmark with indigo ink pouring through its letters, over a hairline grid labelled Plugin for Claude Code, Circle, Send, Before / after, Free, Open source. A real Inkback screenshot shows an indigo brush circle around "Install the plugin" with the note "Make this the main button", under the line "Every change comes back as a before/after. Even the ones you didn't ask for." Headline: "Show Claude what to change. Circle it."](assets/inkback-banner.png)
 
 # Inkback
 
